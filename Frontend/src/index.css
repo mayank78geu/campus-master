@@ -1,0 +1,183 @@
+/* ==========================================================================
+   Campus Master Design System — Derived from design.html
+   ========================================================================== */
+
+:root {
+  /* Brand Primary & Greens */
+  --primary: #0B7A6B;
+  --primary-hover: #0B5E52;
+  --primary-dark: #0B3F37;
+  --primary-soft: #DDF3EE;
+  --primary-tint: #E7F6F2;
+  --teal-accent: #3DBBA1;
+  --teal-vibrant: #5EE0C4;
+
+  /* Neutrals & Dark Ink */
+  --ink: #0F1B2D;
+  --ink-secondary: #33415A;
+  --ink-muted: #55627A;
+  --ink-subtle: #8A96A6;
+  
+  /* Backgrounds */
+  --canvas: #F4F6F8;
+  --surface: #FFFFFF;
+  --surface-alt: #F9FAFB;
+  --surface-muted: #E9EDF1;
+  
+  /* Borders */
+  --border: #D5DCE4;
+  --border-input: #C9D3DD;
+  --border-strong: #B8C2CF;
+  --border-dashed: #9AA6B6;
+
+  /* Badges & Status */
+  --success-bg: #DDF3EE;
+  --success-text: #0B5E52;
+  --warning-bg: #FFF1D6;
+  --warning-text: #8A5300;
+  --danger-bg: #FDE8E6;
+  --danger-text: #A32A1F;
+  --info-bg: #E3EEFB;
+  --info-text: #1D4E9E;
+
+  /* Typography */
+  --font-display: 'Bricolage Grotesque', 'Instrument Sans', system-ui, sans-serif;
+  --font-body: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Shadows */
+  --shadow-subtle: 0 1px 3px 0 rgba(15, 27, 45, 0.05), 0 1px 2px -1px rgba(15, 27, 45, 0.05);
+  --shadow-card: 0 4px 6px -1px rgba(15, 27, 45, 0.06), 0 2px 4px -2px rgba(15, 27, 45, 0.04);
+  --shadow-float: 0 20px 25px -5px rgba(15, 27, 45, 0.08), 0 8px 10px -6px rgba(15, 27, 45, 0.04);
+  --shadow-elevation: 0 30px 60px -30px rgba(15, 27, 45, 0.25);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-family: var(--font-body);
+  background-color: var(--canvas);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  line-height: 1.5;
+  background-color: var(--canvas);
+  color: var(--ink);
+}
+
+/* Typography Helpers */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+.font-code {
+  font-family: var(--font-code);
+}
+
+/* Signature Asymmetric Card Radii from design.html */
+.rounded-card-1 {
+  border-radius: 28px 10px 28px 10px;
+}
+
+.rounded-card-2 {
+  border-radius: 10px 28px 10px 28px;
+}
+
+.rounded-card-3 {
+  border-radius: 32px 8px 32px 8px;
+}
+
+.rounded-card-4 {
+  border-radius: 8px 32px 8px 32px;
+}
+
+.rounded-card-hero {
+  border-radius: 40px 12px 40px 12px;
+}
+
+.rounded-card-pill {
+  border-radius: 9999px;
+}
+
+/* Interactive Buttons */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--primary);
+  color: #FFFFFF;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-radius: 9999px;
+  min-height: 50px;
+  padding: 0 1.75rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  text-decoration: none;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-radius: 9999px;
+  min-height: 50px;
+  padding: 0 1.75rem;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  text-decoration: none;
+}
+
+.btn-outline:hover {
+  background-color: var(--surface);
+  border-color: var(--ink);
+}
+
+/* Chip & Badge Styles */
+.badge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  background-color: rgba(11, 122, 107, 0.1);
+  color: var(--primary-dark);
+}
+
+/* Focus States */
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

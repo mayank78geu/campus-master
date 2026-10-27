@@ -1,0 +1,62 @@
+# ==========================================
+# Campus Master - Root .gitignore
+# ==========================================
+
+# Reference & Specification Files (STRICTLY EXCLUDED)
+PRD.md
+design.html
+reference/
+specs/
+*.pdf
+*.docx
+*.pptx
+*.xlsx
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+application-secrets.yml
+application-secrets.properties
+
+# AI & Workspace Assistants
+.gemini/
+.agents/
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.iml
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini
+
+# ==========================================
+# Backend (Spring Boot & Maven)
+# ==========================================
+Backend/target/
+Backend/.mvn/wrapper/maven-wrapper.jar
+Backend/HELP.md
+Backend/.apt_generated
+Backend/.classpath
+Backend/.factorypath
+Backend/.project
+Backend/.settings
+Backend/.springBeans
+Backend/.sts4-cache
+
+# ==========================================
+# Frontend (React & Node.js)
+# ==========================================
+Frontend/node_modules/
+Frontend/dist/
+Frontend/dist-ssr/
+Frontend/.vite/
+Frontend/*.local
+Frontend/npm-debug.log*
+Frontend/yarn-debug.log*
+Frontend/yarn-error.log*
+Frontend/pnpm-debug.log*
