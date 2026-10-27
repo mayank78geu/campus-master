@@ -1,30 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
-import { KeyRound, BookOpen, Layers, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { KeyRound, BookOpen, Layers, ArrowRight, CheckCircle2, AlertCircle, Clock, Calendar, CheckSquare, Award } from 'lucide-react';
 
 export default function StudentDashboard() {
   const [courses, setCourses] = useState([]);
+  const [deadlines, setDeadlines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const fetchEnrolledCourses = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/courses');
-      setCourses(res.data || []);
+      const [coursesRes, deadlinesRes] = await Promise.all([
+        api.get('/courses'),
+        api.get('/student/deadlines').catch(() => ({ data: [] }))
+      ]);
+      setCourses(coursesRes.data || []);
+      setDeadlines(deadlinesRes.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load enrolled courses');
+      setError(err.message || 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchEnrolledCourses();
+    fetchData();
   }, []);
 
   const handleJoinBatch = async (e) => {
@@ -37,12 +42,24 @@ export default function StudentDashboard() {
       const res = await api.post('/batches/join', { joinCode: joinCode.trim() });
       setMessage(res.message || 'Joined successfully!');
       setJoinCode('');
-      await fetchEnrolledCourses();
+      await fetchData();
     } catch (err) {
       setError(err.message || 'Failed to join batch');
     } finally {
       setJoining(false);
     }
+  };
+
+  const formatDueDate = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const isDueSoon = (dateStr) => {
+    if (!dateStr) return false;
+    const diff = new Date(dateStr) - new Date();
+    return diff > 0 && diff < 48 * 60 * 60 * 1000; // within 48 hours
   };
 
   return (
@@ -53,7 +70,7 @@ export default function StudentDashboard() {
         padding: '2rem',
         border: '1px solid var(--border)',
         boxShadow: 'var(--shadow-card)',
-        marginBottom: '2.5rem',
+        marginBottom: '2rem',
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'center',
@@ -66,7 +83,7 @@ export default function StudentDashboard() {
             Join a Course with a Single Code
           </h2>
           <p style={{ color: 'var(--ink-muted)', fontSize: '0.9rem', marginTop: '0.35rem' }}>
-            Got a 6-character code from your professor? Enter it here to immediately see all course notes, units, and deadlines.
+            Got a 6-character code from your professor? Enter it here to immediately access notes, units, and coursework.
           </p>
         </div>
 
@@ -137,6 +154,113 @@ export default function StudentDashboard() {
         }}>
           <AlertCircle size={18} />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* Upcoming Deadlines Widget */}
+      {deadlines.length > 0 && (
+        <div className="rounded-card-2" style={{
+          backgroundColor: '#FFFFFF',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-card)',
+          padding: '1.75rem',
+          marginBottom: '2.5rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <Clock size={20} color="var(--primary)" />
+              <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--ink)' }}>
+                Upcoming Deadlines & Coursework
+              </h3>
+            </div>
+            <span style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontWeight: 600 }}>
+              {deadlines.filter(d => !d.submitted).length} Pending
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+            {deadlines.map((item) => (
+              <div
+                key={item.assignmentId}
+                style={{
+                  padding: '1.15rem',
+                  borderRadius: '12px',
+                  backgroundColor: item.submitted ? 'var(--surface-muted)' : (isDueSoon(item.dueDate) ? 'var(--warning-bg)' : 'var(--surface-alt)'),
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-code)',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      backgroundColor: 'rgba(0,0,0,0.06)',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '4px',
+                    }}>
+                      {item.courseCode}
+                    </span>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      padding: '0.15rem 0.5rem',
+                      borderRadius: '999px',
+                      backgroundColor: item.submitted 
+                        ? (item.marksPublished ? 'var(--success-soft)' : 'var(--info-bg)')
+                        : 'var(--danger-bg)',
+                      color: item.submitted 
+                        ? (item.marksPublished ? 'var(--success)' : 'var(--info-text)')
+                        : 'var(--danger-text)',
+                    }}>
+                      {item.submitted 
+                        ? (item.marksPublished ? `Graded: ${item.marks}/${item.maxMarks}` : 'Submitted') 
+                        : 'Pending'}
+                    </span>
+                  </div>
+
+                  <h4 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--ink)', marginBottom: '0.35rem' }}>
+                    {item.title}
+                  </h4>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: 'var(--ink-muted)', marginBottom: '0.75rem' }}>
+                    <Calendar size={13} />
+                    <span>Due: <strong>{formatDueDate(item.dueDate)}</strong></span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.65rem', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                  {item.receiptToken ? (
+                    <span style={{ fontFamily: 'var(--font-code)', fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
+                      Receipt: {item.receiptToken}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+                      Max: {item.maxMarks} marks
+                    </span>
+                  )}
+                  <Link
+                    to={`/courses/${item.courseId}?tab=assignments`}
+                    style={{
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: 'var(--primary)',
+                      textDecoration: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                    }}
+                  >
+                    <span>{item.submitted ? 'View Submission' : 'Submit Now'}</span>
+                    <ArrowRight size={14} />
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -256,7 +380,7 @@ export default function StudentDashboard() {
                   padding: '0 1.25rem',
                 }}
               >
-                <span>View Course Units & Material</span>
+                <span>Open Course Space</span>
                 <ArrowRight size={16} />
               </Link>
             </div>

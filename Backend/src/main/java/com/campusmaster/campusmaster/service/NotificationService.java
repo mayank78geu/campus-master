@@ -43,6 +43,15 @@ public class NotificationService {
             .forEach(student -> notifyUser(student, title, message, eventType, targetUrl));
     }
 
+    @Transactional
+    public void notifyBatchStudents(com.campusmaster.campusmaster.entity.Batch batch, String title, String message, String eventType, String targetUrl) {
+        batch.getEnrollments().stream()
+            .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE)
+            .map(e -> e.getStudent())
+            .distinct()
+            .forEach(student -> notifyUser(student, title, message, eventType, targetUrl));
+    }
+
     @Transactional(readOnly = true)
     public List<NotificationResponse> getUserNotifications(User user) {
         return notificationRepository.findByRecipientOrderByCreatedAtDesc(user).stream()

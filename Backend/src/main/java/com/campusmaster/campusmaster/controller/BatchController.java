@@ -79,4 +79,24 @@ public class BatchController {
         EnrollmentResponse response = batchService.updateEnrollmentStatus(id, enrollmentId, status, currentUser);
         return ResponseEntity.ok(ApiResponse.ok(response, "Enrollment status updated to " + status));
     }
+
+    @PatchMapping("/batches/{id}/toggle-status")
+    public ResponseEntity<ApiResponse<BatchResponse>> toggleBatchStatus(@PathVariable Long id) {
+        User currentUser = authService.getCurrentUser();
+        BatchResponse response = batchService.toggleBatchStatus(id, currentUser);
+        return ResponseEntity.ok(ApiResponse.ok(response, "Batch status updated to " + response.getStatus()));
+    }
+
+    @PostMapping("/batches/{id}/students")
+    public ResponseEntity<ApiResponse<List<EnrollmentResponse>>> addStudents(
+            @PathVariable Long id,
+            @RequestBody Map<String, List<String>> payload) {
+        List<String> emails = payload.get("emails");
+        if (emails == null || emails.isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("List of student emails is required"));
+        }
+        User currentUser = authService.getCurrentUser();
+        List<EnrollmentResponse> responses = batchService.addStudentsByEmail(id, emails, currentUser);
+        return ResponseEntity.ok(ApiResponse.ok(responses, "Enrolled " + responses.size() + " students successfully"));
+    }
 }

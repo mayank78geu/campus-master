@@ -148,6 +148,29 @@ public class CourseService {
         return CourseResponse.fromEntity(course);
     }
 
+    @Transactional
+    public CourseResponse transferOwnership(Long courseId, String newOwnerEmail, User currentOwner) {
+        Course course = courseRepository.findById(courseId)
+            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+
+        if (!course.getOwner().getId().equals(currentOwner.getId())) {
+            throw new AccessDeniedException("Only the course owner can transfer ownership");
+        }
+
+        User newOwner = userRepository.findByEmail(newOwnerEmail.trim().toLowerCase())
+            .orElseThrow(() -> new IllegalArgumentException("Faculty user not found with email: " + newOwnerEmail));
+
+        if (newOwner.getRole() != Role.FACULTY) {
+            throw new IllegalArgumentException("Target user is not a faculty account");
+        }
+
+        // Add current owner to coFaculty so they don't abruptly lose access unless desired
+        course.getCoFaculty().add(currentOwner);
+        course.getCoFaculty().remove(newOwner);
+        course.setOwner(newOwner);
+        return CourseResponse.fromEntity(course);
+    }
+
     private void validateFacultyOwnership(Course course, User faculty) {
         boolean isOwner = course.getOwner().getId().equals(faculty.getId());
         boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));

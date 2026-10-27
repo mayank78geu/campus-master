@@ -52,6 +52,11 @@ public class Batch {
     @Builder.Default
     private List<Enrollment> enrollments = new ArrayList<>();
 
+    @OneToMany(mappedBy = "batch", cascade = CascadeType.ALL, orphanRemoval = true)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Builder.Default
+    private List<Assignment> assignments = new ArrayList<>();
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -23,6 +23,7 @@ public class BatchService {
     private final BatchRepository batchRepository;
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
+    private final com.campusmaster.campusmaster.repository.UserRepository userRepository;
 
     private static final String CHARACTERS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // Removed ambiguous chars 0, 1, I, O
     private static final int CODE_LENGTH = 6;
@@ -164,6 +165,38 @@ public class BatchService {
 
         enrollment.setStatus(status);
         return EnrollmentResponse.fromEntity(enrollment);
+    }
+
+    @Transactional
+    public BatchResponse toggleBatchStatus(Long batchId, User faculty) {
+        Batch batch = batchRepository.findById(batchId)
+            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+        validateFacultyOwnership(batch.getCourse(), faculty);
+        batch.setStatus(batch.getStatus() == BatchStatus.ACTIVE ? BatchStatus.CLOSED : BatchStatus.ACTIVE);
+        return BatchResponse.fromEntity(batch);
+    }
+
+    @Transactional
+    public List<EnrollmentResponse> addStudentsByEmail(Long batchId, List<String> emails, User faculty) {
+        Batch batch = batchRepository.findById(batchId)
+            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+        validateFacultyOwnership(batch.getCourse(), faculty);
+
+        java.util.List<EnrollmentResponse> responses = new java.util.ArrayList<>();
+        for (String email : emails) {
+            String trimmed = email.trim().toLowerCase();
+            if (trimmed.isEmpty()) continue;
+            userRepository.findByEmail(trimmed).ifPresent(student -> {
+                if (student.getRole() == Role.STUDENT) {
+                    Enrollment enrollment = enrollmentRepository.findByStudentAndBatch(student, batch)
+                        .orElseGet(() -> Enrollment.builder().student(student).batch(batch).build());
+                    enrollment.setStatus(EnrollmentStatus.ACTIVE);
+                    enrollment = enrollmentRepository.save(enrollment);
+                    responses.add(EnrollmentResponse.fromEntity(enrollment));
+                }
+            });
+        }
+        return responses;
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {

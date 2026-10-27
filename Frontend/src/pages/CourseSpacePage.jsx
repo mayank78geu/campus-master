@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import AssignmentsDesk from '../components/AssignmentsDesk';
+import BatchAnalyticsDesk from '../components/BatchAnalyticsDesk';
 import { 
   ArrowLeft, BookOpen, Layers, Users, Copy, Check, Plus, RefreshCw, 
   FileText, Link as LinkIcon, Download, Eye, History, Search, ExternalLink,
-  UploadCloud, FileUp, Sparkles, CheckCircle2, AlertCircle, X
+  UploadCloud, FileUp, Sparkles, CheckCircle2, AlertCircle, X, Calendar, BarChart3
 } from 'lucide-react';
 
 export default function CourseSpacePage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const isFaculty = user?.role === 'FACULTY';
 
@@ -21,8 +24,8 @@ export default function CourseSpacePage() {
   const [copiedCode, setCopiedCode] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Active Tab: 'units' or 'batches'
-  const [activeTab, setActiveTab] = useState('units');
+  // Active Tab: 'units', 'assignments', 'batches', or 'analytics'
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'units');
 
   // Modals
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
@@ -62,10 +65,8 @@ export default function CourseSpacePage() {
       const courseRes = await api.get(`/courses/${id}`);
       setCourse(courseRes.data);
 
-      if (isFaculty) {
-        const batchRes = await api.get(`/courses/${id}/batches`);
-        setBatches(batchRes.data || []);
-      }
+      const batchRes = await api.get(`/courses/${id}/batches`);
+      setBatches(batchRes.data || []);
 
       const resRes = await api.get(`/courses/${id}/resources`);
       setResources(resRes.data || []);
@@ -357,26 +358,68 @@ export default function CourseSpacePage() {
           <span>Course Units & Materials ({resources.length})</span>
         </button>
 
+        <button
+          onClick={() => setActiveTab('assignments')}
+          style={{
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'assignments' ? '3px solid var(--primary)' : '3px solid transparent',
+            padding: '0.75rem 1rem',
+            fontSize: '1rem',
+            fontWeight: 700,
+            color: activeTab === 'assignments' ? 'var(--primary)' : 'var(--ink-muted)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <Calendar size={18} />
+          <span>Assignments & Coursework</span>
+        </button>
+
         {isFaculty && (
-          <button
-            onClick={() => setActiveTab('batches')}
-            style={{
-              background: 'none',
-              border: 'none',
-              borderBottom: activeTab === 'batches' ? '3px solid var(--primary)' : '3px solid transparent',
-              padding: '0.75rem 1rem',
-              fontSize: '1rem',
-              fontWeight: 700,
-              color: activeTab === 'batches' ? 'var(--primary)' : 'var(--ink-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
-            <Users size={18} />
-            <span>Batches & Join Codes ({batches.length})</span>
-          </button>
+          <>
+            <button
+              onClick={() => setActiveTab('batches')}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: activeTab === 'batches' ? '3px solid var(--primary)' : '3px solid transparent',
+                padding: '0.75rem 1rem',
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: activeTab === 'batches' ? 'var(--primary)' : 'var(--ink-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+              }}
+            >
+              <Users size={18} />
+              <span>Batches & Students ({batches.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analytics')}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: activeTab === 'analytics' ? '3px solid var(--primary)' : '3px solid transparent',
+                padding: '0.75rem 1rem',
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: activeTab === 'analytics' ? 'var(--primary)' : 'var(--ink-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+              }}
+            >
+              <BarChart3 size={18} />
+              <span>Analytics & Gradebook</span>
+            </button>
+          </>
         )}
       </div>
 
@@ -804,6 +847,25 @@ export default function CourseSpacePage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Tab Content: Assignments & Coursework */}
+      {activeTab === 'assignments' && (
+        <AssignmentsDesk
+          courseId={id}
+          batches={batches}
+          isFaculty={isFaculty}
+          user={user}
+        />
+      )}
+
+      {/* Tab Content: Batch Analytics & Gradebook */}
+      {activeTab === 'analytics' && isFaculty && (
+        <BatchAnalyticsDesk
+          courseId={id}
+          batches={batches}
+          onBatchStatusChanged={fetchCourseData}
+        />
       )}
 
       {/* Upload Material Modal */}

@@ -73,4 +73,17 @@ public class CourseController {
         CourseResponse response = courseService.addCoFaculty(id, email, currentUser);
         return ResponseEntity.ok(ApiResponse.ok(response, "Co-faculty added successfully"));
     }
+
+    @PostMapping("/{id}/transfer")
+    public ResponseEntity<ApiResponse<CourseResponse>> transferOwnership(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> payload) {
+        String email = payload.get("email");
+        if (email == null || email.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("New owner email is required"));
+        }
+        User currentUser = authService.getCurrentUser();
+        CourseResponse response = courseService.transferOwnership(id, email, currentUser);
+        return ResponseEntity.ok(ApiResponse.ok(response, "Course ownership transferred successfully"));
+    }
 }
