@@ -57,7 +57,8 @@ public class SubmissionController {
 
     @GetMapping("/submissions/receipt/{receiptToken}")
     public ResponseEntity<ApiResponse<SubmissionResponse>> getSubmissionByReceipt(@PathVariable String receiptToken) {
-        SubmissionResponse response = submissionService.getSubmissionByReceipt(receiptToken);
+        User user = authService.getCurrentUser();
+        SubmissionResponse response = submissionService.getSubmissionByReceipt(receiptToken, user);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

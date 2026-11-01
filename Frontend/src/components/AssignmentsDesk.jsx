@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api from '../services/api';
+import api, { API_ORIGIN } from '../services/api';
 import { 
   Plus, Calendar, Clock, CheckCircle2, AlertCircle, FileText, Download, 
   ExternalLink, Copy, Check, Award, Send, X, Layers, Users, RefreshCw,
@@ -95,7 +95,7 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
           initials: initials,
           filesCount: sub.attachments ? sub.attachments.length : (sub.textContent ? 1 : 0),
           fileName: firstAtt ? firstAtt.fileName : (sub.textContent ? 'Submission Response' : null),
-          fileUrl: firstAtt ? firstAtt.fileUrl : null,
+          fileUrl: firstAtt ? (firstAtt.fileUrl?.startsWith('http') ? firstAtt.fileUrl : `${API_ORIGIN}/api/v1/files/${firstAtt.fileUrl}`) : null,
           fileSize: firstAtt && firstAtt.fileSize ? (firstAtt.fileSize / 1024 / 1024).toFixed(1) + ' MB' : 'Online Response',
           status: sub.isLate ? 'Late' : 'On time',
           statusType: sub.isLate ? 'late' : 'on_time',
@@ -386,7 +386,7 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                   {selectedAssignment.attachments.map(att => (
                     <a
                       key={att.id}
-                      href={att.fileUrl}
+                      href={att.fileUrl?.startsWith('http') ? att.fileUrl : `${API_ORIGIN}/api/v1/files/${att.fileUrl}`}
                       target="_blank"
                       rel="noreferrer"
                       style={{

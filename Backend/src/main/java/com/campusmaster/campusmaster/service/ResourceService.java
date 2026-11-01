@@ -3,6 +3,7 @@ package com.campusmaster.campusmaster.service;
 import com.campusmaster.campusmaster.dto.resource.ResourceResponse;
 import com.campusmaster.campusmaster.dto.resource.ResourceVersionResponse;
 import com.campusmaster.campusmaster.entity.*;
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.CourseRepository;
 import com.campusmaster.campusmaster.repository.ResourceRepository;
 import com.campusmaster.campusmaster.repository.ResourceVersionRepository;
@@ -27,6 +28,7 @@ public class ResourceService {
     private final UnitRepository unitRepository;
     private final StorageService storageService;
     private final NotificationService notificationService;
+    private final CourseAccessService courseAccessService;
 
     private static final long MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB per PRD §5.4
 
@@ -203,14 +205,19 @@ public class ResourceService {
     @Transactional(readOnly = true)
     public List<ResourceResponse> getResources(Long courseId, Long unitId, User user) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found: " + courseId));
 
         boolean isFaculty = user.getRole() == Role.FACULTY;
+        if (isFaculty) {
+            courseAccessService.requireFacultyOf(course, user);
+        } else {
+            courseAccessService.requireMemberOf(course, user);
+        }
 
         List<Resource> list;
         if (unitId != null) {
             Unit unit = unitRepository.findById(unitId)
-                .orElseThrow(() -> new IllegalArgumentException("Unit not found: " + unitId));
+                .orElseThrow(() -> new ResourceNotFoundException("Unit not found: " + unitId));
             list = isFaculty
                 ? resourceRepository.findByCourseAndUnitOrderByCreatedAtDesc(course, unit)
                 : resourceRepository.findByCourseAndUnitAndIsPublishedTrueOrderByCreatedAtDesc(course, unit);
@@ -224,19 +231,32 @@ public class ResourceService {
     }
 
     @Transactional
-    public void recordView(Long resourceId) {
-        resourceRepository.findById(resourceId).ifPresent(r -> r.setViewCount(r.getViewCount() + 1));
+    public void recordView(Long resourceId, User user) {
+        Resource resource = resourceRepository.findById(resourceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Resource not found with id: " + resourceId));
+        courseAccessService.requireMemberOf(resource.getCourse(), user);
+        resource.setViewCount(resource.getViewCount() + 1);
     }
 
     @Transactional
-    public void recordDownload(Long resourceId) {
-        resourceRepository.findById(resourceId).ifPresent(r -> r.setDownloadCount(r.getDownloadCount() + 1));
+    public void recordDownload(Long resourceId, User user) {
+        Resource resource = resourceRepository.findById(resourceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Resource not found with id: " + resourceId));
+        courseAccessService.requireMemberOf(resource.getCourse(), user);
+        resource.setDownloadCount(resource.getDownloadCount() + 1);
     }
 
     @Transactional(readOnly = true)
     public List<ResourceResponse> search(Long courseId, String query, User user) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found: " + courseId));
+
+        boolean isFaculty = user.getRole() == Role.FACULTY;
+        if (isFaculty) {
+            courseAccessService.requireFacultyOf(course, user);
+        } else {
+            courseAccessService.requireMemberOf(course, user);
+        }
 
         return resourceRepository.searchInCourse(course, query.trim()).stream()
             .filter(r -> user.getRole() == Role.FACULTY || r.isPublished())
@@ -252,10 +272,6 @@ public class ResourceService {
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-        if (!isOwner && !isCoFaculty) {
-            throw new AccessDeniedException("You do not have permission to manage resources for this course");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
     }
 }

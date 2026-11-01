@@ -27,6 +27,7 @@ public class CourseService {
     private final CourseRepository courseRepository;
     private final UnitRepository unitRepository;
     private final UserRepository userRepository;
+    private final CourseAccessService courseAccessService;
 
     @Transactional
     public CourseResponse createCourse(CreateCourseRequest request, User faculty) {
@@ -172,24 +173,14 @@ public class CourseService {
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-        if (!isOwner && !isCoFaculty) {
-            throw new AccessDeniedException("You do not have permission to manage this course");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
     }
 
     private void validateCourseAccess(Course course, User user) {
         if (user.getRole() == Role.FACULTY) {
-            validateFacultyOwnership(course, user);
+            courseAccessService.requireFacultyOf(course, user);
         } else {
-            // Student access check: must be enrolled in at least one batch
-            boolean isEnrolled = course.getBatches().stream()
-                .flatMap(b -> b.getEnrollments().stream())
-                .anyMatch(e -> e.getStudent().getId().equals(user.getId()) && e.getStatus().name().equals("ACTIVE"));
-            if (!isEnrolled) {
-                throw new AccessDeniedException("You are not enrolled in this course");
-            }
+            courseAccessService.requireMemberOf(course, user);
         }
     }
 }

@@ -22,6 +22,7 @@ public class AnalyticsService {
     private final AssignmentRepository assignmentRepository;
     private final SubmissionRepository submissionRepository;
     private final ResourceRepository resourceRepository;
+    private final CourseAccessService courseAccessService;
 
     @Transactional(readOnly = true)
     public BatchAnalyticsResponse getBatchAnalytics(Long batchId, User faculty) {
@@ -154,10 +155,6 @@ public class AnalyticsService {
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("You do not have permission to view analytics or export data for this batch");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
     }
 }

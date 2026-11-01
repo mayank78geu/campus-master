@@ -28,6 +28,7 @@ public class AssignmentService {
     private final BatchRepository batchRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final NotificationService notificationService;
+    private final CourseAccessService courseAccessService;
 
     @Transactional
     public AssignmentResponse createAssignment(Long batchId, CreateAssignmentRequest request, User user) {
@@ -35,12 +36,7 @@ public class AssignmentService {
             .orElseThrow(() -> new ResourceNotFoundException("Batch not found"));
 
         Course course = batch.getCourse();
-        boolean isOwner = course.getOwner().getId().equals(user.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(user.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("Only course faculty can create assignments");
-        }
+        courseAccessService.requireFacultyOf(course, user);
 
         Assignment assignment = Assignment.builder()
             .batch(batch)
@@ -82,6 +78,7 @@ public class AssignmentService {
     public List<AssignmentResponse> getBatchAssignments(Long batchId, User user) {
         Batch batch = batchRepository.findById(batchId)
             .orElseThrow(() -> new ResourceNotFoundException("Batch not found"));
+        courseAccessService.requireMemberOfBatch(batch, user);
 
         List<Assignment> assignments = assignmentRepository.findByBatchIdOrderByDueDateAsc(batchId);
         return assignments.stream()
@@ -93,6 +90,7 @@ public class AssignmentService {
     public AssignmentResponse getAssignmentById(Long id, User user) {
         Assignment assignment = assignmentRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
+        courseAccessService.requireMemberOfBatch(assignment.getBatch(), user);
         return mapToResponse(assignment, user);
     }
 
@@ -104,14 +102,11 @@ public class AssignmentService {
         Batch targetBatch = batchRepository.findById(request.getTargetBatchId())
             .orElseThrow(() -> new ResourceNotFoundException("Target batch not found"));
 
+        // SEC-07: Require faculty authorization on both source course and target course
+        courseAccessService.requireFacultyOf(source.getBatch().getCourse(), user);
+        courseAccessService.requireFacultyOf(targetBatch.getCourse(), user);
+
         Course course = targetBatch.getCourse();
-        boolean isOwner = course.getOwner().getId().equals(user.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(user.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("You do not have permission to create assignments in the target batch");
-        }
-
         Assignment cloned = Assignment.builder()
             .batch(targetBatch)
             .title(source.getTitle())
@@ -151,12 +146,7 @@ public class AssignmentService {
             .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
 
         Course course = assignment.getBatch().getCourse();
-        boolean isOwner = course.getOwner().getId().equals(user.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(user.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("Only course faculty can publish grades");
-        }
+        courseAccessService.requireFacultyOf(course, user);
 
         List<Submission> submissions = submissionRepository.findByAssignmentId(assignmentId);
         for (Submission s : submissions) {

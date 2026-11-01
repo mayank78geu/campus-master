@@ -4,6 +4,7 @@ import com.campusmaster.campusmaster.dto.batch.BatchResponse;
 import com.campusmaster.campusmaster.dto.batch.CreateBatchRequest;
 import com.campusmaster.campusmaster.dto.batch.EnrollmentResponse;
 import com.campusmaster.campusmaster.entity.*;
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.BatchRepository;
 import com.campusmaster.campusmaster.repository.CourseRepository;
 import com.campusmaster.campusmaster.repository.EnrollmentRepository;
@@ -24,6 +25,7 @@ public class BatchService {
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final com.campusmaster.campusmaster.repository.UserRepository userRepository;
+    private final CourseAccessService courseAccessService;
 
     private static final String CHARACTERS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // Removed ambiguous chars 0, 1, I, O
     private static final int CODE_LENGTH = 6;
@@ -76,10 +78,19 @@ public class BatchService {
     @Transactional(readOnly = true)
     public List<BatchResponse> getBatchesByCourse(Long courseId, User user) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
+
+        courseAccessService.requireMemberOf(course, user);
+        boolean isFaculty = courseAccessService.isFacultyOf(course, user);
 
         return batchRepository.findByCourseOrderByCreatedAtDesc(course).stream()
-            .map(BatchResponse::fromEntity)
+            .map(b -> {
+                BatchResponse res = BatchResponse.fromEntity(b);
+                if (!isFaculty) {
+                    res.setJoinCode(null);
+                }
+                return res;
+            })
             .collect(Collectors.toList());
     }
 
@@ -208,10 +219,6 @@ public class BatchService {
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-        if (!isOwner && !isCoFaculty) {
-            throw new AccessDeniedException("You do not have permission to manage batches for this course");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
     }
 }

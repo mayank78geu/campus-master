@@ -25,6 +25,7 @@ public class AnnouncementService {
     private final UserRepository userRepository;
     private final CourseRepository courseRepository;
     private final BatchRepository batchRepository;
+    private final CourseAccessService courseAccessService;
 
     @Transactional
     public AnnouncementResponse createAnnouncement(CreateAnnouncementRequest request, User author) {
@@ -53,9 +54,7 @@ public class AnnouncementService {
                 course = courseRepository.findById(request.getCourseId())
                     .orElseThrow(() -> new ResourceNotFoundException("Course not found: " + request.getCourseId()));
 
-                if (!course.getOwner().getId().equals(author.getId())) {
-                    throw new BadRequestException("You can only announce to courses created by you");
-                }
+                courseAccessService.requireFacultyOf(course, author);
 
                 if (course.getBatches() != null) {
                     for (Batch b : course.getBatches()) {
@@ -79,9 +78,7 @@ public class AnnouncementService {
                 batch = batchRepository.findById(request.getBatchId())
                     .orElseThrow(() -> new ResourceNotFoundException("Batch not found: " + request.getBatchId()));
 
-                if (!batch.getCourse().getOwner().getId().equals(author.getId())) {
-                    throw new BadRequestException("You can only announce to batches of your courses");
-                }
+                courseAccessService.requireFacultyOf(batch.getCourse(), author);
 
                 targetBatches.add(batch);
                 course = batch.getCourse();
@@ -105,9 +102,7 @@ public class AnnouncementService {
                 }
 
                 for (Batch b : foundBatches) {
-                    if (!b.getCourse().getOwner().getId().equals(author.getId())) {
-                        throw new BadRequestException("Batch " + b.getName() + " does not belong to your courses");
-                    }
+                    courseAccessService.requireFacultyOf(b.getCourse(), author);
                     targetBatches.add(b);
                     if (b.getEnrollments() != null) {
                         for (Enrollment e : b.getEnrollments()) {
