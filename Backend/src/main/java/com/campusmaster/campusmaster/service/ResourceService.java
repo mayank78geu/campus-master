@@ -119,6 +119,10 @@ public class ResourceService {
 
         validateFacultyOwnership(course, faculty);
 
+        if (externalUrl == null || (!externalUrl.trim().toLowerCase().startsWith("http://") && !externalUrl.trim().toLowerCase().startsWith("https://"))) {
+            throw new BadRequestException("External URL must use http or https scheme");
+        }
+
         Unit unit = null;
         if (unitId != null) {
             unit = unitRepository.findById(unitId)

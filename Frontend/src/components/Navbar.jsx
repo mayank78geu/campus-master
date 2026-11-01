@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { GraduationCap, LogOut, BookOpen, User, Bell, Check, ExternalLink } from 'lucide-react';
+import { LogOut, BookOpen, Bell } from 'lucide-react';
 
 export default function Navbar({ onOpenAuth }) {
   const { user, logout } = useAuth();

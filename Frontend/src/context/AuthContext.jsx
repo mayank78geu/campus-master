@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
     if (savedUser && token) {
       try {
         setUser(JSON.parse(savedUser));
-      } catch (e) {
+      } catch (_e) {
         localStorage.removeItem('cm_user');
         localStorage.removeItem('cm_token');
       }
