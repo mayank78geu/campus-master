@@ -8,7 +8,10 @@ import com.campusmaster.campusmaster.entity.Course;
 import com.campusmaster.campusmaster.entity.Role;
 import com.campusmaster.campusmaster.entity.Unit;
 import com.campusmaster.campusmaster.entity.User;
+import com.campusmaster.campusmaster.exception.BadRequestException;
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.CourseRepository;
+import com.campusmaster.campusmaster.repository.ResourceRepository;
 import com.campusmaster.campusmaster.repository.UnitRepository;
 import com.campusmaster.campusmaster.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +19,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -27,6 +30,7 @@ public class CourseService {
     private final CourseRepository courseRepository;
     private final UnitRepository unitRepository;
     private final UserRepository userRepository;
+    private final ResourceRepository resourceRepository;
     private final CourseAccessService courseAccessService;
 
     @Transactional
@@ -85,7 +89,7 @@ public class CourseService {
     @Transactional(readOnly = true)
     public CourseResponse getCourseById(Long courseId, User user) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
         validateCourseAccess(course, user);
         return CourseResponse.fromEntity(course);
@@ -94,35 +98,67 @@ public class CourseService {
     @Transactional
     public List<UnitResponse> updateUnits(Long courseId, List<UnitRequest> unitRequests, User faculty) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
         validateFacultyOwnership(course, faculty);
 
-        // Remove existing units and save updated list
-        course.getUnits().clear();
-        courseRepository.flush();
+        List<Unit> currentUnits = unitRepository.findByCourseOrderBySortOrderAsc(course);
+        Map<Long, Unit> existingUnits = currentUnits.stream()
+            .collect(Collectors.toMap(Unit::getId, Function.identity()));
 
-        List<Unit> newUnits = new ArrayList<>();
-        int order = 1;
-        for (UnitRequest req : unitRequests) {
-            if (req.getTitle() != null && !req.getTitle().trim().isEmpty()) {
-                newUnits.add(Unit.builder()
-                    .course(course)
-                    .title(req.getTitle().trim())
-                    .sortOrder(order++)
-                    .build());
+        Set<Long> requestedIds = (unitRequests != null) ? unitRequests.stream()
+            .map(UnitRequest::getId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet()) : Set.of();
+
+        // Identify units to remove
+        List<Unit> unitsToRemove = currentUnits.stream()
+            .filter(u -> !requestedIds.contains(u.getId()))
+            .collect(Collectors.toList());
+
+        for (Unit u : unitsToRemove) {
+            if (resourceRepository.existsByUnit(u)) {
+                throw new IllegalStateException("Cannot delete unit '" + u.getTitle() + "' because resources are attached to it");
+            }
+            unitRepository.delete(u);
+            course.getUnits().remove(u);
+        }
+
+        List<Unit> resultUnits = new ArrayList<>();
+        if (unitRequests != null) {
+            int fallbackOrder = 1;
+            for (UnitRequest req : unitRequests) {
+                if (req.getTitle() == null || req.getTitle().trim().isEmpty()) {
+                    continue;
+                }
+                int sortOrder = req.getSortOrder() > 0 ? req.getSortOrder() : fallbackOrder++;
+                if (req.getId() != null && existingUnits.containsKey(req.getId())) {
+                    Unit existing = existingUnits.get(req.getId());
+                    existing.setTitle(req.getTitle().trim());
+                    existing.setSortOrder(sortOrder);
+                    resultUnits.add(existing);
+                } else {
+                    Unit newUnit = Unit.builder()
+                        .course(course)
+                        .title(req.getTitle().trim())
+                        .sortOrder(sortOrder)
+                        .build();
+                    resultUnits.add(newUnit);
+                }
             }
         }
-        unitRepository.saveAll(newUnits);
-        course.getUnits().addAll(newUnits);
 
-        return newUnits.stream().map(UnitResponse::fromEntity).collect(Collectors.toList());
+        unitRepository.saveAll(resultUnits);
+        course.getUnits().clear();
+        course.getUnits().addAll(resultUnits);
+
+        return resultUnits.stream().map(UnitResponse::fromEntity).collect(Collectors.toList());
     }
 
     @Transactional
     public CourseResponse archiveCourse(Long courseId, User faculty) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
         validateFacultyOwnership(course, faculty);
         course.setArchived(true);
@@ -132,17 +168,17 @@ public class CourseService {
     @Transactional
     public CourseResponse addCoFaculty(Long courseId, String coFacultyEmail, User owner) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
         if (!course.getOwner().getId().equals(owner.getId())) {
             throw new AccessDeniedException("Only the course owner can invite co-faculty");
         }
 
         User coFaculty = userRepository.findByEmail(coFacultyEmail.trim().toLowerCase())
-            .orElseThrow(() -> new IllegalArgumentException("Faculty user not found with email: " + coFacultyEmail));
+            .orElseThrow(() -> new ResourceNotFoundException("Faculty user not found with email: " + coFacultyEmail));
 
         if (coFaculty.getRole() != Role.FACULTY) {
-            throw new IllegalArgumentException("User is not a faculty account");
+            throw new BadRequestException("User is not a faculty account");
         }
 
         course.getCoFaculty().add(coFaculty);
@@ -152,17 +188,17 @@ public class CourseService {
     @Transactional
     public CourseResponse transferOwnership(Long courseId, String newOwnerEmail, User currentOwner) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
         if (!course.getOwner().getId().equals(currentOwner.getId())) {
             throw new AccessDeniedException("Only the course owner can transfer ownership");
         }
 
         User newOwner = userRepository.findByEmail(newOwnerEmail.trim().toLowerCase())
-            .orElseThrow(() -> new IllegalArgumentException("Faculty user not found with email: " + newOwnerEmail));
+            .orElseThrow(() -> new ResourceNotFoundException("Faculty user not found with email: " + newOwnerEmail));
 
         if (newOwner.getRole() != Role.FACULTY) {
-            throw new IllegalArgumentException("Target user is not a faculty account");
+            throw new BadRequestException("Target user is not a faculty account");
         }
 
         // Add current owner to coFaculty so they don't abruptly lose access unless desired

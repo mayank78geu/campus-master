@@ -1,3 +1,4 @@
+import { fileHref } from '../services/files';
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -1493,7 +1494,7 @@ export default function StudentDashboard() {
                               marginBottom: '0.15rem',
                             }}>
                               <a
-                                href={item.externalUrl || `http://localhost:8081/api/v1/files/${item.fileUrl}`}
+                                href={item.externalUrl || fileHref(item.fileUrl)}
                                 target="_blank"
                                 rel="noreferrer"
                                 style={{ color: 'inherit', textDecoration: 'none' }}

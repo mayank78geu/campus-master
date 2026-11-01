@@ -14,6 +14,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     @org.springframework.data.jpa.repository.Modifying
     @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Query("UPDATE Notification n SET n.isRead = true WHERE n.recipient = :recipient AND n.isRead = false")
+    int markAllAsReadForUser(@org.springframework.data.repository.query.Param("recipient") User recipient);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
     @org.springframework.data.jpa.repository.Query("DELETE FROM Notification n WHERE n.announcement.id = :announcementId")
     void deleteByAnnouncementId(@org.springframework.data.repository.query.Param("announcementId") Long announcementId);
 }

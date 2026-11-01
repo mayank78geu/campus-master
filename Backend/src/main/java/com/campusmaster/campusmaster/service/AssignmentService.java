@@ -9,6 +9,7 @@ import com.campusmaster.campusmaster.entity.*;
 import com.campusmaster.campusmaster.exception.BadRequestException;
 import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.*;
+import com.campusmaster.campusmaster.service.storage.StorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,7 @@ public class AssignmentService {
     private final EnrollmentRepository enrollmentRepository;
     private final NotificationService notificationService;
     private final CourseAccessService courseAccessService;
+    private final StorageService storageService;
 
     @Transactional
     public AssignmentResponse createAssignment(Long batchId, CreateAssignmentRequest request, User user) {
@@ -68,7 +70,7 @@ public class AssignmentService {
             "New Assignment: " + assignment.getTitle(),
             "Assignment '" + assignment.getTitle() + "' was assigned in " + course.getName() + " (" + batch.getName() + "). Due: " + assignment.getDueDate().toLocalDate(),
             "ASSIGNMENT_CREATED",
-            "/course/" + course.getId() + "/batch/" + batch.getId()
+            "/courses/" + course.getId() + "?batch=" + batch.getId() + "&tab=assignments"
         );
 
         return mapToResponse(assignment, user);
@@ -134,7 +136,7 @@ public class AssignmentService {
             "New Assignment: " + cloned.getTitle(),
             "Assignment '" + cloned.getTitle() + "' was assigned in " + course.getName() + " (" + targetBatch.getName() + "). Due: " + cloned.getDueDate().toLocalDate(),
             "ASSIGNMENT_CREATED",
-            "/course/" + course.getId() + "/batch/" + targetBatch.getId()
+            "/courses/" + course.getId() + "?batch=" + targetBatch.getId() + "&tab=assignments"
         );
 
         return mapToResponse(cloned, user);
@@ -150,7 +152,7 @@ public class AssignmentService {
 
         List<Submission> submissions = submissionRepository.findByAssignmentId(assignmentId);
         for (Submission s : submissions) {
-            if (!s.isMarksPublished()) {
+            if (!s.isMarksPublished() && s.getMarks() != null) {
                 s.setMarksPublished(true);
                 submissionRepository.save(s);
 
@@ -158,9 +160,9 @@ public class AssignmentService {
                 notificationService.notifyUser(
                     s.getStudent(),
                     "Grades Published: " + assignment.getTitle(),
-                    "Your marks and feedback for assignment '" + assignment.getTitle() + "' are now available. Score: " + (s.getMarks() != null ? s.getMarks() + "/" + assignment.getMaxMarks() : "Evaluated"),
+                    "Your marks and feedback for assignment '" + assignment.getTitle() + "' are now available. Score: " + s.getMarks() + "/" + assignment.getMaxMarks(),
                     "GRADES_PUBLISHED",
-                    "/course/" + course.getId() + "/batch/" + assignment.getBatch().getId()
+                    "/courses/" + course.getId() + "?batch=" + assignment.getBatch().getId() + "&tab=assignments"
                 );
             }
         }
@@ -240,7 +242,7 @@ public class AssignmentService {
                         SubmissionResponse.AttachmentDto.builder()
                             .id(att.getId())
                             .fileName(att.getFileName())
-                            .fileUrl(att.getFileUrl())
+                            .fileUrl(storageService.getDownloadUrl(att.getFileUrl()))
                             .fileSize(att.getFileSize())
                             .build()
                     ).collect(Collectors.toList()))
@@ -269,7 +271,7 @@ public class AssignmentService {
                 AssignmentResponse.AttachmentDto.builder()
                     .id(att.getId())
                     .fileName(att.getFileName())
-                    .fileUrl(att.getFileUrl())
+                    .fileUrl(storageService.getDownloadUrl(att.getFileUrl()))
                     .fileSize(att.getFileSize())
                     .build()
             ).collect(Collectors.toList()))

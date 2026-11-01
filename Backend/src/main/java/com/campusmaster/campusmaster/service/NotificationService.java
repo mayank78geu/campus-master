@@ -5,8 +5,10 @@ import com.campusmaster.campusmaster.entity.Course;
 import com.campusmaster.campusmaster.entity.EnrollmentStatus;
 import com.campusmaster.campusmaster.entity.Notification;
 import com.campusmaster.campusmaster.entity.User;
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.NotificationRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,10 +69,10 @@ public class NotificationService {
     @Transactional
     public void markAsRead(Long id, User user) {
         Notification notification = notificationRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Notification not found: " + id));
+            .orElseThrow(() -> new ResourceNotFoundException("Notification not found: " + id));
 
         if (!notification.getRecipient().getId().equals(user.getId())) {
-            throw new IllegalArgumentException("Cannot modify notification belonging to another user");
+            throw new AccessDeniedException("Cannot modify notification belonging to another user");
         }
 
         notification.setRead(true);
@@ -78,9 +80,6 @@ public class NotificationService {
 
     @Transactional
     public void markAllAsRead(User user) {
-        List<Notification> unread = notificationRepository.findByRecipientOrderByCreatedAtDesc(user);
-        for (Notification n : unread) {
-            n.setRead(true);
-        }
+        notificationRepository.markAllAsReadForUser(user);
     }
 }

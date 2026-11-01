@@ -8,7 +8,9 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.NonNull;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -17,6 +19,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
@@ -26,6 +29,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     private final JwtUtils jwtUtils;
     private final UserDetailsServiceImpl userDetailsService;
+    private final FileSignatureService fileSignatureService;
 
     @Override
     protected void doFilterInternal(
@@ -44,6 +48,25 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+            } else if (request.getRequestURI().startsWith("/api/v1/files/")) {
+                String expParam = request.getParameter("exp");
+                String sigParam = request.getParameter("sig");
+                if (expParam != null && sigParam != null) {
+                    try {
+                        long exp = Long.parseLong(expParam);
+                        String path = request.getRequestURI().substring("/api/v1/files/".length());
+                        if (fileSignatureService.verifySignature(path, exp, sigParam)) {
+                            UsernamePasswordAuthenticationToken signedToken = new UsernamePasswordAuthenticationToken(
+                                "signed-file-user",
+                                null,
+                                List.of(new SimpleGrantedAuthority("ROLE_USER"))
+                            );
+                            SecurityContextHolder.getContext().setAuthentication(signedToken);
+                        }
+                    } catch (Exception ex) {
+                        logger.debug("Failed to verify signed file url: {}", ex.getMessage());
+                    }
+                }
             }
         } catch (Exception e) {
             logger.error("Cannot set user authentication: {}", e.getMessage());

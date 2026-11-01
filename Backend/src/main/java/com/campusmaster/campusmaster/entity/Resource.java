@@ -41,6 +41,7 @@ public class Resource {
     @Builder.Default
     private ResourceType resourceType = ResourceType.FILE;
 
+    @Column(length = 2048)
     private String fileUrl;
 
     @Column(length = 2048)

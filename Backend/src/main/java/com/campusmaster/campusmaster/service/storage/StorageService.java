@@ -7,4 +7,5 @@ public interface StorageService {
     String storeFile(MultipartFile file, String subfolder);
     Resource loadFileAsResource(String fileUrl);
     void deleteFile(String fileUrl);
+    String getDownloadUrl(String storedPath);
 }

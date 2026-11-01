@@ -24,7 +24,7 @@ public class ResourceVersion {
     @Column(nullable = false)
     private int versionNumber;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 2048)
     private String fileUrl;
 
     private String fileName;

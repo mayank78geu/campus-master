@@ -77,7 +77,13 @@ public class SubmissionService {
             if (textContent != null) {
                 submission.setTextContent(textContent);
             }
-            submission.setReceiptToken(generateReceiptToken(assignment.getId()));
+            // Per D3: Keep the same receipt token per assignment+student
+            // Reset marks, feedback, marksPublished flag
+            submission.setMarks(null);
+            submission.setFeedback(null);
+            submission.setMarksPublished(false);
+            // Replace previous attachments
+            submission.getAttachments().clear();
         } else {
             submission = Submission.builder()
                 .assignment(assignment)
@@ -108,15 +114,29 @@ public class SubmissionService {
 
         submission = submissionRepository.save(submission);
 
-        // Notify faculty owner and co-faculty
+        // Notify faculty owner and co-faculty (FUN-17)
         Course course = batch.getCourse();
+        String notifMsg = student.getName() + " submitted assignment '" + assignment.getTitle() + "' (" + batch.getName() + ")" + (isLate ? " [LATE]" : "") + ". Receipt: " + submission.getReceiptToken();
+        String targetUrl = "/courses/" + course.getId() + "?batch=" + batch.getId() + "&tab=assignments";
+
         notificationService.notifyUser(
             course.getOwner(),
             "New Submission: " + assignment.getTitle(),
-            student.getName() + " submitted assignment '" + assignment.getTitle() + "' (" + batch.getName() + ")" + (isLate ? " [LATE]" : "") + ". Receipt: " + submission.getReceiptToken(),
+            notifMsg,
             "SUBMISSION_RECEIVED",
-            "/course/" + course.getId() + "/batch/" + batch.getId()
+            targetUrl
         );
+        if (course.getCoFaculty() != null) {
+            for (User coFaculty : course.getCoFaculty()) {
+                notificationService.notifyUser(
+                    coFaculty,
+                    "New Submission: " + assignment.getTitle(),
+                    notifMsg,
+                    "SUBMISSION_RECEIVED",
+                    targetUrl
+                );
+            }
+        }
 
         return mapToResponse(submission);
     }
@@ -148,9 +168,23 @@ public class SubmissionService {
             throw new BadRequestException("Marks must be between 0 and " + assignment.getMaxMarks());
         }
 
+        if (submission.isMarksPublished() && !Boolean.TRUE.equals(request.getRegrade())) {
+            throw new BadRequestException("Submission has already been published. Set regrade=true to re-grade.");
+        }
+
         submission.setMarks(request.getMarks());
         submission.setFeedback(request.getFeedback());
         submission = submissionRepository.save(submission);
+
+        if (submission.isMarksPublished() && Boolean.TRUE.equals(request.getRegrade())) {
+            notificationService.notifyUser(
+                submission.getStudent(),
+                "Grades Updated: " + assignment.getTitle(),
+                "Your marks and feedback for assignment '" + assignment.getTitle() + "' have been updated. Score: " + submission.getMarks() + "/" + assignment.getMaxMarks(),
+                "GRADES_PUBLISHED",
+                "/courses/" + course.getId() + "?batch=" + assignment.getBatch().getId() + "&tab=assignments"
+            );
+        }
 
         return mapToResponse(submission, faculty);
     }
@@ -201,7 +235,7 @@ public class SubmissionService {
                 SubmissionResponse.AttachmentDto.builder()
                     .id(att.getId())
                     .fileName(att.getFileName())
-                    .fileUrl(att.getFileUrl())
+                    .fileUrl(storageService.getDownloadUrl(att.getFileUrl()))
                     .fileSize(att.getFileSize())
                     .build()
             ).collect(Collectors.toList()))

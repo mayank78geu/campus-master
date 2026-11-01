@@ -3,14 +3,15 @@ package com.campusmaster.campusmaster.service;
 import com.campusmaster.campusmaster.dto.resource.ResourceResponse;
 import com.campusmaster.campusmaster.dto.resource.ResourceVersionResponse;
 import com.campusmaster.campusmaster.entity.*;
+import com.campusmaster.campusmaster.exception.BadRequestException;
 import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.CourseRepository;
 import com.campusmaster.campusmaster.repository.ResourceRepository;
 import com.campusmaster.campusmaster.repository.ResourceVersionRepository;
 import com.campusmaster.campusmaster.repository.UnitRepository;
 import com.campusmaster.campusmaster.service.storage.StorageService;
+import com.campusmaster.campusmaster.util.FileUploadValidator;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,8 +31,6 @@ public class ResourceService {
     private final NotificationService notificationService;
     private final CourseAccessService courseAccessService;
 
-    private static final long MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB per PRD §5.4
-
     @Transactional
     public ResourceResponse addFileResource(
             Long courseId,
@@ -43,17 +42,18 @@ public class ResourceService {
             User faculty
     ) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found: " + courseId));
 
         validateFacultyOwnership(course, faculty);
-
-        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
-            throw new IllegalArgumentException("File exceeds maximum allowed size of 25 MB");
-        }
+        FileUploadValidator.validateSingleFile(file);
 
         Unit unit = null;
         if (unitId != null) {
-            unit = unitRepository.findById(unitId).orElse(null);
+            unit = unitRepository.findById(unitId)
+                .orElseThrow(() -> new ResourceNotFoundException("Unit not found: " + unitId));
+            if (!unit.getCourse().getId().equals(course.getId())) {
+                throw new BadRequestException("Unit does not belong to this course");
+            }
         }
 
         String storedPath = storageService.storeFile(file, "courses/" + courseId);
@@ -97,11 +97,11 @@ public class ResourceService {
                 "New Resource: " + resource.getTitle(),
                 "New material was added to " + course.getName() + (unit != null ? " (" + unit.getTitle() + ")" : ""),
                 "RESOURCE_ADDED",
-                "/courses/" + courseId
+                "/courses/" + courseId + "?tab=resources"
             );
         }
 
-        return ResourceResponse.fromEntity(resource);
+        return mapToResponse(resource);
     }
 
     @Transactional
@@ -115,13 +115,17 @@ public class ResourceService {
             User faculty
     ) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found: " + courseId));
 
         validateFacultyOwnership(course, faculty);
 
         Unit unit = null;
         if (unitId != null) {
-            unit = unitRepository.findById(unitId).orElse(null);
+            unit = unitRepository.findById(unitId)
+                .orElseThrow(() -> new ResourceNotFoundException("Unit not found: " + unitId));
+            if (!unit.getCourse().getId().equals(course.getId())) {
+                throw new BadRequestException("Unit does not belong to this course");
+            }
         }
 
         Resource resource = Resource.builder()
@@ -144,11 +148,11 @@ public class ResourceService {
                 "New Resource: " + resource.getTitle(),
                 "A link was added to " + course.getName(),
                 "RESOURCE_ADDED",
-                "/courses/" + courseId
+                "/courses/" + courseId + "?tab=resources"
             );
         }
 
-        return ResourceResponse.fromEntity(resource);
+        return mapToResponse(resource);
     }
 
     @Transactional
@@ -159,13 +163,15 @@ public class ResourceService {
             User faculty
     ) {
         Resource resource = resourceRepository.findById(resourceId)
-            .orElseThrow(() -> new IllegalArgumentException("Resource not found: " + resourceId));
+            .orElseThrow(() -> new ResourceNotFoundException("Resource not found: " + resourceId));
 
         validateFacultyOwnership(resource.getCourse(), faculty);
 
-        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
-            throw new IllegalArgumentException("File exceeds maximum allowed size of 25 MB");
+        if (resource.getResourceType() != ResourceType.FILE) {
+            throw new BadRequestException("Cannot upload a new file version to a non-file resource");
         }
+
+        FileUploadValidator.validateSingleFile(file);
 
         int newVersionNumber = resource.getCurrentVersion() + 1;
         String storedPath = storageService.storeFile(file, "courses/" + resource.getCourse().getId());
@@ -191,15 +197,17 @@ public class ResourceService {
         resource.setMimeType(file.getContentType());
         resource.getVersions().add(0, newVersion);
 
-        notificationService.notifyCourseStudents(
-            resource.getCourse(),
-            "Resource Updated: " + resource.getTitle(),
-            "A new version was uploaded for " + resource.getTitle(),
-            "RESOURCE_UPDATED",
-            "/courses/" + resource.getCourse().getId()
-        );
+        if (resource.isPublished()) {
+            notificationService.notifyCourseStudents(
+                resource.getCourse(),
+                "Resource Updated: " + resource.getTitle(),
+                "A new version was uploaded for " + resource.getTitle(),
+                "RESOURCE_UPDATED",
+                "/courses/" + resource.getCourse().getId() + "?tab=resources"
+            );
+        }
 
-        return ResourceResponse.fromEntity(resource);
+        return mapToResponse(resource);
     }
 
     @Transactional(readOnly = true)
@@ -227,7 +235,7 @@ public class ResourceService {
                 : resourceRepository.findByCourseAndIsPublishedTrueOrderByCreatedAtDesc(course);
         }
 
-        return list.stream().map(ResourceResponse::fromEntity).collect(Collectors.toList());
+        return list.stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
     @Transactional
@@ -235,7 +243,7 @@ public class ResourceService {
         Resource resource = resourceRepository.findById(resourceId)
             .orElseThrow(() -> new ResourceNotFoundException("Resource not found with id: " + resourceId));
         courseAccessService.requireMemberOf(resource.getCourse(), user);
-        resource.setViewCount(resource.getViewCount() + 1);
+        resourceRepository.incrementViewCount(resourceId);
     }
 
     @Transactional
@@ -243,7 +251,7 @@ public class ResourceService {
         Resource resource = resourceRepository.findById(resourceId)
             .orElseThrow(() -> new ResourceNotFoundException("Resource not found with id: " + resourceId));
         courseAccessService.requireMemberOf(resource.getCourse(), user);
-        resource.setDownloadCount(resource.getDownloadCount() + 1);
+        resourceRepository.incrementDownloadCount(resourceId);
     }
 
     @Transactional(readOnly = true)
@@ -260,15 +268,26 @@ public class ResourceService {
 
         return resourceRepository.searchInCourse(course, query.trim()).stream()
             .filter(r -> user.getRole() == Role.FACULTY || r.isPublished())
-            .map(ResourceResponse::fromEntity)
+            .map(this::mapToResponse)
             .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<ResourceResponse> getRecentResources() {
         return resourceRepository.findTop6ByIsPublishedTrueOrderByCreatedAtDesc().stream()
-            .map(ResourceResponse::fromEntity)
+            .map(this::mapToResponse)
             .collect(Collectors.toList());
+    }
+
+    private ResourceResponse mapToResponse(Resource r) {
+        ResourceResponse resp = ResourceResponse.fromEntity(r);
+        resp.setFileUrl(storageService.getDownloadUrl(r.getFileUrl()));
+        if (resp.getVersions() != null) {
+            for (ResourceVersionResponse v : resp.getVersions()) {
+                v.setFileUrl(storageService.getDownloadUrl(v.getFileUrl()));
+            }
+        }
+        return resp;
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {

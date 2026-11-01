@@ -37,9 +37,25 @@ export default function Navbar({ onOpenAuth }) {
     try {
       await api.patch('/notifications/read-all');
       setUnreadCount(0);
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
+      setNotifications(notifications.map(n => ({ ...n, read: true, isRead: true })));
     } catch (e) {
       // ignore
+    }
+  };
+
+  const handleNotificationClick = async (notif) => {
+    try {
+      if (!notif.read && !notif.isRead) {
+        await api.patch(`/notifications/${notif.id}/read`);
+        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true, isRead: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (e) {
+      // ignore
+    }
+    setIsNotifOpen(false);
+    if (notif.targetUrl) {
+      navigate(notif.targetUrl);
     }
   };
 
@@ -204,10 +220,13 @@ export default function Navbar({ onOpenAuth }) {
                         notifications.map((notif) => (
                           <div
                             key={notif.id}
+                            onClick={() => handleNotificationClick(notif)}
                             style={{
                               padding: '0.65rem 1rem',
                               borderBottom: '1px solid var(--border)',
-                              backgroundColor: notif.read ? '#FFFFFF' : 'var(--primary-soft)',
+                              backgroundColor: (notif.read || notif.isRead) ? '#FFFFFF' : 'var(--primary-soft)',
+                              cursor: 'pointer',
+                              transition: 'background-color 0.15s ease',
                             }}
                           >
                             <div style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--ink)', marginBottom: '2px' }}>

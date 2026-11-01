@@ -7,10 +7,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "submissions", indexes = {
-    @Index(name = "idx_submission_receipt", columnList = "receiptToken", unique = true),
-    @Index(name = "idx_submission_assignment_student", columnList = "assignment_id, student_id")
-})
+@Table(name = "submissions",
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_submission_assignment_student", columnNames = {"assignment_id", "student_id"})
+    },
+    indexes = {
+        @Index(name = "idx_submission_receipt", columnList = "receiptToken", unique = true),
+        @Index(name = "idx_submission_assignment_student", columnList = "assignment_id, student_id")
+    }
+)
 @Getter
 @Setter
 @NoArgsConstructor

@@ -5,6 +5,9 @@ import com.campusmaster.campusmaster.dto.auth.LoginRequest;
 import com.campusmaster.campusmaster.dto.auth.RegisterRequest;
 import com.campusmaster.campusmaster.dto.auth.UserResponse;
 import com.campusmaster.campusmaster.entity.User;
+import com.campusmaster.campusmaster.exception.BadRequestException;
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
+import com.campusmaster.campusmaster.exception.UnauthorizedException;
 import com.campusmaster.campusmaster.repository.UserRepository;
 import com.campusmaster.campusmaster.security.JwtUtils;
 import com.campusmaster.campusmaster.security.UserDetailsImpl;
@@ -28,13 +31,14 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("Email is already registered: " + request.getEmail());
+        String normalizedEmail = request.getEmail().trim().toLowerCase();
+        if (userRepository.existsByEmail(normalizedEmail)) {
+            throw new BadRequestException("Email is already registered: " + normalizedEmail);
         }
 
         User user = User.builder()
             .name(request.getName().trim())
-            .email(request.getEmail().trim().toLowerCase())
+            .email(normalizedEmail)
             .password(passwordEncoder.encode(request.getPassword()))
             .role(request.getRole())
             .isVerified(true) // Open sign-up per PRD AUTH-3
@@ -79,10 +83,10 @@ public class AuthService {
     public User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof UserDetailsImpl userPrincipal)) {
-            throw new IllegalStateException("No authenticated user in context");
+            throw new UnauthorizedException("No authenticated user in context");
         }
         return userRepository.findById(userPrincipal.getId())
-            .orElseThrow(() -> new IllegalStateException("User not found: " + userPrincipal.getId()));
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userPrincipal.getId()));
     }
 
     @Transactional(readOnly = true)

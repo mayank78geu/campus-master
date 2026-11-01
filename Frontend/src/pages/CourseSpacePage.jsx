@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import api from '../services/api';
+import api, { API_ORIGIN } from '../services/api';
+import { fileHref } from '../services/files';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import AssignmentsDesk from '../components/AssignmentsDesk';
@@ -222,11 +223,11 @@ export default function CourseSpacePage() {
 
   const handleDeclineRequest = async (req) => {
     try {
-      await api.patch(`/batches/${req.batchId}/enrollments/${req.id}`, { status: 'REMOVED' });
+      await api.patch(`/batches/${req.batchId}/enrollments/${req.id}`, { status: 'REJECTED' });
       setPendingRequests(prev => prev.filter(r => r.id !== req.id));
-      showToast(`Enrollment request declined for ${req.name || 'Student'}.`);
+      showToast(`Enrollment request rejected for ${req.name || 'Student'}.`);
     } catch (err) {
-      alert(err.message || 'Failed to decline enrollment request');
+      alert(err.message || 'Failed to reject enrollment request');
     }
   };
 
@@ -247,7 +248,7 @@ export default function CourseSpacePage() {
         formData.append('file', resFile);
 
         const token = localStorage.getItem('cm_token');
-        const res = await fetch(`http://localhost:8081/api/v1/courses/${id}/resources/upload`, {
+        const res = await fetch(`${API_ORIGIN}/api/v1/courses/${id}/resources/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -297,11 +298,7 @@ export default function CourseSpacePage() {
       await api.post(`/resources/${resItem.id}/download`);
       setResources(prev => prev.map(r => r.id === resItem.id ? { ...r, downloadCount: (r.downloadCount || 0) + 1 } : r));
     } catch (e) {}
-    if (resItem.fileUrl?.startsWith('http://') || resItem.fileUrl?.startsWith('https://')) {
-      window.open(resItem.fileUrl, '_blank');
-    } else {
-      window.open(`http://localhost:8081/api/v1/files/${resItem.fileUrl}`, '_blank');
-    }
+    window.open(fileHref(resItem.fileUrl), '_blank');
   };
 
   // Color helper for resource format badges matching Image 3
