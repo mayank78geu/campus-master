@@ -4,7 +4,7 @@ import { fileHref } from '../services/files';
 import { 
   Plus, Calendar, Clock, CheckCircle2, AlertCircle, FileText, Download, 
   ExternalLink, Copy, Check, Award, Send, X, Layers, Users, RefreshCw,
-  ArrowLeft, ChevronRight, FileUp
+  ArrowLeft, ChevronRight, FileUp, BookOpen
 } from 'lucide-react';
 
 export default function AssignmentsDesk({ courseId, batches, isFaculty, user, courseCode = 'DBMS' }) {
@@ -59,13 +59,21 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
       const res = await api.get(`/batches/${selectedBatchId}/assignments`);
       const list = res.data || [];
       setAssignments(list);
-      // Auto-select first assignment if faculty
-      if (isFaculty && list.length > 0 && !selectedAssignment) {
-        setSelectedAssignment(list[0]);
+      // Auto-select first assignment if none selected or previous selection no longer in list
+      if (list.length > 0) {
+        setSelectedAssignment(prev => {
+          if (!prev || !list.some(a => a.id === prev.id)) {
+            return list[0];
+          }
+          return list.find(a => a.id === prev.id) || list[0];
+        });
+      } else {
+        setSelectedAssignment(null);
       }
     } catch (err) {
       console.error('Failed to load assignments:', err);
       setAssignments([]);
+      setSelectedAssignment(null);
     } finally {
       setLoading(false);
     }
@@ -200,6 +208,11 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
       alert('Please upload a file or enter submission text');
       return;
     }
+    const targetAsgId = selectedAssignment?.id || (assignments[0]?.id);
+    if (!targetAsgId) {
+      alert('No assignment selected for submission');
+      return;
+    }
     setSubmitting(true);
     try {
       const formData = new FormData();
@@ -209,18 +222,13 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
       if (submissionFile) {
         formData.append('files', submissionFile);
       }
-      const token = localStorage.getItem('cm_token');
-      const targetAsgId = selectedAssignment?.id || (assignments[0]?.id || 1);
-      const res = await fetch(`http://localhost:8081/api/v1/assignments/${targetAsgId}/submissions`, {
-        method: 'POST',
+      const res = await api.post(`/assignments/${targetAsgId}/submissions`, formData, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'multipart/form-data',
         },
-        body: formData,
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message || 'Submission failed');
-      setSuccessMsg(`Assignment submitted successfully! Receipt Token: ${data.data?.receiptToken}`);
+      const receiptToken = res.data?.receiptToken || res?.receiptToken || 'Submitted';
+      setSuccessMsg(`Assignment submitted successfully! Receipt Token: ${receiptToken}`);
       setSubmissionFile(null);
       setSubmissionText('');
       await fetchAssignments();
@@ -269,76 +277,223 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
   const activeBatch = batches.find(b => b.id === selectedBatchId) || batches[0];
   const batchTermName = activeBatch?.term || activeBatch?.name || 'Sem 3 · 2026–27';
 
+  const formatDueDate = (dateStr) => {
+    if (!dateStr) return 'No due date';
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    } catch (_e) {
+      return dateStr;
+    }
+  };
+
+  const formatLatePolicy = (policy) => {
+    if (policy === 'BLOCK_AFTER_DEADLINE') return 'Late submissions blocked';
+    if (policy === 'ACCEPT_MARK_LATE') return 'Late submissions accepted and marked';
+    if (policy === 'DEDUCT_PERCENTAGE') return 'Late penalty applied';
+    return 'Standard submission policy';
+  };
+
   return (
     <div>
-      {/* Top Header matching Image 2 */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        gap: '1.5rem',
-        marginBottom: '2rem',
-      }}>
-        <div>
-          {/* Breadcrumbs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.88rem', color: '#64748B', marginBottom: '0.45rem' }}>
-            <span style={{ color: '#0D9488', fontWeight: 600 }}>{courseCode}</span>
-            <span>/</span>
-            <span>{batchTermName}</span>
-            <span>/</span>
-            <span>Assignments</span>
-          </div>
-
-          {/* Title */}
-          <h1 className="font-display" style={{ fontSize: '2.1rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.025em', marginBottom: '0.35rem' }}>
-            {selectedAssignment?.title || 'Normalization Practice Set'}
-          </h1>
-
-          {/* Meta line */}
-          <p style={{ fontSize: '0.88rem', color: '#64748B', margin: 0 }}>
-            Due Monday 20 Oct, 11:59 PM · {selectedAssignment?.maxMarks || 20} marks · Late submissions accepted and marked
-          </p>
+      {/* Batch Breadcrumbs & Context Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.88rem', color: '#64748B' }}>
+          <span style={{ color: '#0D9488', fontWeight: 700 }}>{courseCode}</span>
+          <span>/</span>
+          <span style={{ fontWeight: 600 }}>{batchTermName}</span>
+          <span>/</span>
+          <span>Assignments</span>
         </div>
 
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        {isFaculty && (
           <button
-            onClick={() => alert('Downloading all student submissions as ZIP archive...')}
+            onClick={() => setIsCreateModalOpen(true)}
             style={{
-              backgroundColor: '#FFFFFF',
-              color: '#0F172A',
-              border: '1px solid #E2E8F0',
+              backgroundColor: '#0D9488',
+              color: '#FFFFFF',
+              border: 'none',
               borderRadius: '10px',
-              padding: '0.6rem 1.25rem',
-              fontWeight: 600,
-              fontSize: '0.88rem',
+              padding: '0.55rem 1.15rem',
+              fontWeight: 700,
+              fontSize: '0.84rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
               cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+              boxShadow: '0 2px 4px rgba(13, 148, 136, 0.2)',
             }}
           >
-            Download all (ZIP)
+            <Plus size={15} />
+            <span>Create Assignment</span>
           </button>
+        )}
+      </div>
 
+      {/* If No Assignments exist in batch */}
+      {assignments.length === 0 ? (
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: '16px',
+          border: '1px solid #E2E8F0',
+          padding: '4rem 2rem',
+          textAlign: 'center',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+        }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            backgroundColor: '#F0FDFA',
+            color: '#0D9488',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '1.25rem',
+          }}>
+            <BookOpen size={30} />
+          </div>
+          <h2 className="font-display" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.5rem' }}>
+            {isFaculty ? 'No assignments created in this batch yet' : "Currently you don't have any assignments"}
+          </h2>
+          <p style={{ fontSize: '0.92rem', color: '#64748B', maxWidth: '460px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
+            {isFaculty
+              ? `There are no coursework tasks published for ${batchTermName}. Click below to configure problem statements, deadlines, and submission parameters for your students.`
+              : `There are currently no active assignments or homework for ${batchTermName}. When your instructor publishes coursework, it will appear here with instructions and submission deadlines.`}
+          </p>
           {isFaculty && (
             <button
-              onClick={handlePublishMarks}
+              onClick={() => setIsCreateModalOpen(true)}
               style={{
-                backgroundColor: '#0F766E',
+                backgroundColor: '#0D9488',
                 color: '#FFFFFF',
                 border: 'none',
                 borderRadius: '10px',
-                padding: '0.6rem 1.4rem',
+                padding: '0.7rem 1.5rem',
                 fontWeight: 700,
-                fontSize: '0.88rem',
+                fontSize: '0.9rem',
                 cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(15, 118, 110, 0.2)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
               }}
             >
-              Publish marks
+              <Plus size={16} />
+              <span>Create First Assignment</span>
             </button>
           )}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Assignment Switcher Bar (shows all assignments created by faculty with deadlines) */}
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '14px',
+            border: '1px solid #E2E8F0',
+            padding: '0.85rem 1.25rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            overflowX: 'auto',
+          }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+              All Assignments ({assignments.length}):
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', flex: 1, paddingBottom: '2px' }}>
+              {assignments.map((asg) => {
+                const isSelected = selectedAssignment?.id === asg.id;
+                const dueDateObj = asg.dueDate ? new Date(asg.dueDate) : null;
+                const isPastDue = dueDateObj && dueDateObj < new Date();
+                const isSubmitted = asg.mySubmission != null;
+                const isGraded = isSubmitted && asg.mySubmission.marksPublished;
+
+                return (
+                  <button
+                    key={asg.id}
+                    onClick={() => setSelectedAssignment(asg)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.45rem 0.95rem',
+                      borderRadius: '10px',
+                      border: isSelected ? '2px solid #0D9488' : '1px solid #E2E8F0',
+                      backgroundColor: isSelected ? '#F0FDF4' : '#FFFFFF',
+                      color: isSelected ? '#0D9488' : '#1E293B',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>{asg.title}</span>
+                    {!isFaculty && (
+                      <span style={{
+                        fontSize: '0.68rem',
+                        fontWeight: 800,
+                        padding: '0.1rem 0.4rem',
+                        borderRadius: '4px',
+                        backgroundColor: isGraded ? '#D1FAE5' : isSubmitted ? '#E0F2FE' : isPastDue ? '#FEE2E2' : '#FEF3C7',
+                        color: isGraded ? '#065F46' : isSubmitted ? '#0369A1' : isPastDue ? '#DC2626' : '#B45309',
+                      }}>
+                        {isGraded ? `${asg.mySubmission.marks}/${asg.maxMarks}` : isSubmitted ? 'Submitted' : isPastDue ? 'Past Due' : 'Due Soon'}
+                      </span>
+                    )}
+                    {isFaculty && (
+                      <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                        {asg.maxMarks} marks
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Selected Assignment Header */}
+          {selectedAssignment && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: '1.5rem',
+              marginBottom: '2rem',
+              flexWrap: 'wrap',
+            }}>
+              <div>
+                <h1 className="font-display" style={{ fontSize: '2.1rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.025em', marginBottom: '0.35rem' }}>
+                  {selectedAssignment.title}
+                </h1>
+                <p style={{ fontSize: '0.88rem', color: '#64748B', margin: 0 }}>
+                  Due {formatDueDate(selectedAssignment.dueDate)} · {selectedAssignment.maxMarks || 20} marks · {formatLatePolicy(selectedAssignment.latePolicy)}
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {isFaculty && (
+                  <button
+                    onClick={handlePublishMarks}
+                    style={{
+                      backgroundColor: '#0F766E',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '0.6rem 1.4rem',
+                      fontWeight: 700,
+                      fontSize: '0.88rem',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(15, 118, 110, 0.2)',
+                    }}
+                  >
+                    Publish marks
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
       {/* Success Notification */}
       {successMsg && (
@@ -1134,8 +1289,196 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
               </>
             );
           })()}
+        </>
+      )}
     </>
   )}
-</div>
-);
+
+      {/* Modal: Create Assignment */}
+      {isCreateModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1rem',
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '540px',
+            padding: '2rem',
+            border: '1px solid #E2E8F0',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                Create Assignment for {batchTermName}
+              </h3>
+              <button onClick={() => setIsCreateModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAssignment}>
+              <div style={{ marginBottom: '1.15rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="e.g. Lab Assignment 2: Normalization"
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '1.15rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Instructions & Problem Statement
+                </label>
+                <textarea
+                  rows={4}
+                  value={newInstructions}
+                  onChange={(e) => setNewInstructions(e.target.value)}
+                  placeholder="Describe the submission requirements, format, and questions..."
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.88rem',
+                    outline: 'none',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1rem', marginBottom: '1.15rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                    Due Date & Time *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={newDueDate}
+                    onChange={(e) => setNewDueDate(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.88rem',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                    Max Marks *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    required
+                    value={newMaxMarks}
+                    onChange={(e) => setNewMaxMarks(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Late Submission Policy
+                </label>
+                <select
+                  value={newLatePolicy}
+                  onChange={(e) => setNewLatePolicy(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '0.88rem',
+                    outline: 'none',
+                    backgroundColor: '#FFFFFF',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="ACCEPT_MARK_LATE">Accept late submissions (marked as late)</option>
+                  <option value="BLOCK_AFTER_DEADLINE">Block submissions after deadline</option>
+                  <option value="DEDUCT_PERCENTAGE">Deduct percentage penalty for late submission</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  style={{
+                    padding: '0.65rem 1.25rem',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    backgroundColor: '#FFFFFF',
+                    color: '#334155',
+                    fontWeight: 600,
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  style={{
+                    padding: '0.65rem 1.5rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#0D9488',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: '0.88rem',
+                    cursor: creating ? 'not-allowed' : 'pointer',
+                    opacity: creating ? 0.7 : 1,
+                  }}
+                >
+                  {creating ? 'Publishing...' : 'Publish Assignment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -9,6 +9,7 @@ import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.BatchRepository;
 import com.campusmaster.campusmaster.repository.CourseRepository;
 import com.campusmaster.campusmaster.repository.EnrollmentRepository;
+import com.campusmaster.campusmaster.repository.AssignmentRepository;
 import com.campusmaster.campusmaster.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,6 +29,7 @@ public class BatchService {
     private final BatchRepository batchRepository;
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
+    private final AssignmentRepository assignmentRepository;
     private final UserRepository userRepository;
     private final CourseAccessService courseAccessService;
 
@@ -86,9 +89,12 @@ public class BatchService {
         courseAccessService.requireMemberOf(course, user);
         boolean isFaculty = courseAccessService.isFacultyOf(course, user);
 
+        LocalDateTime now = LocalDateTime.now();
         return batchRepository.findByCourseOrderByCreatedAtDesc(course).stream()
             .map(b -> {
-                BatchResponse res = BatchResponse.fromEntity(b);
+                int activeStudents = (int) enrollmentRepository.countByBatchAndStatus(b, EnrollmentStatus.ACTIVE);
+                int activeAssignments = (int) assignmentRepository.countByBatchIdAndDueDateAfter(b.getId(), now);
+                BatchResponse res = BatchResponse.fromEntity(b, activeStudents, activeAssignments);
                 if (!isFaculty) {
                     res.setJoinCode(null);
                 }
