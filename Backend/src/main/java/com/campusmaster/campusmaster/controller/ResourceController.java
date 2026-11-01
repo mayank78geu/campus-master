@@ -101,4 +101,10 @@ public class ResourceController {
         resourceService.recordDownload(id);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
+
+    @GetMapping("/resources/recent")
+    public ResponseEntity<ApiResponse<List<ResourceResponse>>> getRecentResources() {
+        List<ResourceResponse> response = resourceService.getRecentResources();
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
 }

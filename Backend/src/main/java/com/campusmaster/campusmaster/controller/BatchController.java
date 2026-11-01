@@ -99,4 +99,11 @@ public class BatchController {
         List<EnrollmentResponse> responses = batchService.addStudentsByEmail(id, emails, currentUser);
         return ResponseEntity.ok(ApiResponse.ok(responses, "Enrolled " + responses.size() + " students successfully"));
     }
+
+    @GetMapping("/faculty/join-requests")
+    public ResponseEntity<ApiResponse<List<EnrollmentResponse>>> getFacultyJoinRequests() {
+        User currentUser = authService.getCurrentUser();
+        List<EnrollmentResponse> responses = batchService.getFacultyPendingEnrollments(currentUser);
+        return ResponseEntity.ok(ApiResponse.ok(responses));
+    }
 }

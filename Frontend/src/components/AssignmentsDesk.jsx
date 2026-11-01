@@ -2,50 +2,47 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { 
   Plus, Calendar, Clock, CheckCircle2, AlertCircle, FileText, Download, 
-  ExternalLink, Copy, Check, Award, Send, X, Layers, Users, RefreshCw
+  ExternalLink, Copy, Check, Award, Send, X, Layers, Users, RefreshCw,
+  ArrowLeft, ChevronRight, FileUp
 } from 'lucide-react';
 
-export default function AssignmentsDesk({ courseId, batches, isFaculty, user }) {
+export default function AssignmentsDesk({ courseId, batches, isFaculty, user, courseCode = 'DBMS' }) {
   const [selectedBatchId, setSelectedBatchId] = useState(batches && batches.length > 0 ? batches[0].id : null);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Selected assignment for the full grading desk (Image 2)
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
+
+  // Student list filter: 'ALL', 'TO_MARK', 'LATE', 'MISSING'
+  const [studentFilter, setStudentFilter] = useState('ALL');
+
+  // Selected student for right grading panel
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+
+  // Grading form state
+  const [currentMark, setCurrentMark] = useState('');
+  const [currentFeedback, setCurrentFeedback] = useState('');
+
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
-  const [isSubmissionsDeskOpen, setIsSubmissionsDeskOpen] = useState(false);
-  const [activeAssignment, setActiveAssignment] = useState(null);
+  const [activeSubmitAsg, setActiveSubmitAsg] = useState(null);
 
   // Create Assignment State
   const [newTitle, setNewTitle] = useState('');
   const [newInstructions, setNewInstructions] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
-  const [newMaxMarks, setNewMaxMarks] = useState(100);
-  const [newLatePolicy, setNewLatePolicy] = useState('BLOCK_AFTER_DEADLINE');
+  const [newMaxMarks, setNewMaxMarks] = useState(20);
+  const [newLatePolicy, setNewLatePolicy] = useState('ACCEPT_MARK_LATE');
   const [creating, setCreating] = useState(false);
 
-  // Clone Assignment State
-  const [targetBatchId, setTargetBatchId] = useState('');
-  const [cloneDueDate, setCloneDueDate] = useState('');
-  const [cloning, setCloning] = useState(false);
-
-  // Student Submission State
+  // Student submission state
   const [submissionText, setSubmissionText] = useState('');
-  const [submissionFiles, setSubmissionFiles] = useState([]);
+  const [submissionFile, setSubmissionFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [digitalReceipt, setDigitalReceipt] = useState(null);
-  const [copiedReceipt, setCopiedReceipt] = useState(false);
-
-  // Faculty Review Desk State
-  const [submissionsList, setSubmissionsList] = useState([]);
-  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
-  const [gradingMarks, setGradingMarks] = useState({});
-  const [gradingFeedback, setGradingFeedback] = useState({});
-  const [savingGradeId, setSavingGradeId] = useState(null);
-  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     if (batches && batches.length > 0 && !selectedBatchId) {
@@ -59,9 +56,15 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user }) 
       setLoading(true);
       setError('');
       const res = await api.get(`/batches/${selectedBatchId}/assignments`);
-      setAssignments(res.data || []);
+      const list = res.data || [];
+      setAssignments(list);
+      // Auto-select first assignment if faculty
+      if (isFaculty && list.length > 0 && !selectedAssignment) {
+        setSelectedAssignment(list[0]);
+      }
     } catch (err) {
-      setError(err.message || 'Failed to load assignments');
+      console.error('Failed to load assignments:', err);
+      setAssignments([]);
     } finally {
       setLoading(false);
     }
@@ -73,12 +76,164 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user }) 
     }
   }, [selectedBatchId]);
 
+  // Submissions Data loaded from backend
+  const [studentsData, setStudentsData] = useState([]);
+
+  const fetchSubmissions = async (assignmentId) => {
+    if (!assignmentId || !isFaculty) return;
+    try {
+      const res = await api.get(`/assignments/${assignmentId}/submissions`);
+      const list = res.data || [];
+      const mapped = list.map((sub, idx) => {
+        const names = (sub.studentName || 'Student').trim().split(' ');
+        const initials = (names[0][0] + (names.length > 1 ? names[names.length - 1][0] : '')).toUpperCase();
+        const firstAtt = sub.attachments && sub.attachments.length > 0 ? sub.attachments[0] : null;
+        return {
+          id: sub.studentId || (idx + 1),
+          submissionId: sub.id,
+          name: sub.studentName || 'Student',
+          initials: initials,
+          filesCount: sub.attachments ? sub.attachments.length : (sub.textContent ? 1 : 0),
+          fileName: firstAtt ? firstAtt.fileName : (sub.textContent ? 'Submission Response' : null),
+          fileUrl: firstAtt ? firstAtt.fileUrl : null,
+          fileSize: firstAtt && firstAtt.fileSize ? (firstAtt.fileSize / 1024 / 1024).toFixed(1) + ' MB' : 'Online Response',
+          status: sub.isLate ? 'Late' : 'On time',
+          statusType: sub.isLate ? 'late' : 'on_time',
+          submittedAt: sub.submittedAt ? new Date(sub.submittedAt).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Recently',
+          lateDuration: sub.isLate ? 'Late submission' : null,
+          marks: sub.marks,
+          feedback: sub.feedback || '',
+          receiptToken: sub.receiptToken,
+          textContent: sub.textContent,
+        };
+      });
+      setStudentsData(mapped);
+      if (mapped.length > 0) {
+        setSelectedStudentId(mapped[0].id);
+        setCurrentMark(mapped[0].marks !== null && mapped[0].marks !== undefined ? String(mapped[0].marks) : '');
+        setCurrentFeedback(mapped[0].feedback || '');
+      } else {
+        setSelectedStudentId(null);
+        setCurrentMark('');
+        setCurrentFeedback('');
+      }
+    } catch (e) {
+      console.error('Failed to fetch assignment submissions:', e);
+      setStudentsData([]);
+      setSelectedStudentId(null);
+      setCurrentMark('');
+      setCurrentFeedback('');
+    }
+  };
+
+  useEffect(() => {
+    if (selectedAssignment?.id) {
+      fetchSubmissions(selectedAssignment.id);
+    }
+  }, [selectedAssignment]);
+
+  const selectedStudent = studentsData.find(s => s.id === selectedStudentId) || (studentsData.length > 0 ? studentsData[0] : null);
+
+  const handleSelectStudent = (student) => {
+    setSelectedStudentId(student.id);
+    setCurrentMark(student.marks !== null && student.marks !== undefined ? String(student.marks) : '');
+    setCurrentFeedback(student.feedback || '');
+  };
+
+  const handleSaveGrade = async () => {
+    setStudentsData(prev => prev.map(s => {
+      if (s.id === selectedStudentId) {
+        return {
+          ...s,
+          marks: currentMark !== '' ? Number(currentMark) : s.marks,
+          feedback: currentFeedback,
+        };
+      }
+      return s;
+    }));
+
+    if (selectedStudent?.submissionId) {
+      try {
+        await api.patch(`/submissions/${selectedStudent.submissionId}/grade`, {
+          marks: currentMark !== '' ? Number(currentMark) : null,
+          feedback: currentFeedback,
+        });
+      } catch (err) {
+        console.error('Failed to save grade on backend:', err);
+      }
+    }
+
+    setSuccessMsg('Grade and feedback saved for ' + selectedStudent.name);
+    setTimeout(() => setSuccessMsg(''), 3000);
+  };
+
+  const handleSaveAndNext = async () => {
+    await handleSaveGrade();
+    const currentIndex = studentsData.findIndex(s => s.id === selectedStudentId);
+    if (currentIndex < studentsData.length - 1) {
+      const nextStudent = studentsData[currentIndex + 1];
+      setSelectedStudentId(nextStudent.id);
+      setCurrentMark(nextStudent.marks !== null && nextStudent.marks !== undefined ? String(nextStudent.marks) : '');
+      setCurrentFeedback(nextStudent.feedback || '');
+    }
+  };
+
+  const handlePublishMarks = async () => {
+    if (selectedAssignment?.id) {
+      try {
+        await api.post(`/assignments/${selectedAssignment.id}/publish-grades`);
+        setSuccessMsg('Marks published successfully! All enrolled students can now view their evaluated score and feedback.');
+        setTimeout(() => setSuccessMsg(''), 4000);
+      } catch (err) {
+        alert(err.message || 'Failed to publish grades');
+      }
+    } else {
+      setSuccessMsg('Marks published successfully! All students can now view their evaluated score and feedback.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    }
+  };
+
+  const handleStudentSubmit = async (e) => {
+    e.preventDefault();
+    if (!submissionFile && !submissionText.trim()) {
+      alert('Please upload a file or enter submission text');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const formData = new FormData();
+      if (submissionText.trim()) {
+        formData.append('textContent', submissionText.trim());
+      }
+      if (submissionFile) {
+        formData.append('files', submissionFile);
+      }
+      const token = localStorage.getItem('cm_token');
+      const targetAsgId = selectedAssignment?.id || (assignments[0]?.id || 1);
+      const res = await fetch(`http://localhost:8081/api/v1/assignments/${targetAsgId}/submissions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Submission failed');
+      setSuccessMsg(`Assignment submitted successfully! Receipt Token: ${data.data?.receiptToken}`);
+      setSubmissionFile(null);
+      setSubmissionText('');
+      await fetchAssignments();
+    } catch (err) {
+      alert(err.message || 'Submission failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleCreateAssignment = async (e) => {
     e.preventDefault();
     if (!selectedBatchId) return;
     setCreating(true);
-    setError('');
-    setSuccessMsg('');
     try {
       await api.post(`/batches/${selectedBatchId}/assignments`, {
         title: newTitle.trim(),
@@ -87,1127 +242,899 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user }) 
         maxMarks: Number(newMaxMarks),
         latePolicy: newLatePolicy,
       });
-      setSuccessMsg('Assignment published to batch successfully!');
       setIsCreateModalOpen(false);
-      // Reset form
       setNewTitle('');
       setNewInstructions('');
       setNewDueDate('');
-      setNewMaxMarks(100);
-      setNewLatePolicy('BLOCK_AFTER_DEADLINE');
+      setNewMaxMarks(20);
+      setSuccessMsg('Assignment published to batch successfully!');
+      setTimeout(() => setSuccessMsg(''), 4000);
       await fetchAssignments();
     } catch (err) {
-      setError(err.message || 'Failed to create assignment');
+      alert(err.message || 'Failed to create assignment');
     } finally {
       setCreating(false);
     }
   };
 
-  const handleOpenCloneModal = (asg) => {
-    setActiveAssignment(asg);
-    const otherBatches = batches.filter(b => b.id !== selectedBatchId);
-    setTargetBatchId(otherBatches.length > 0 ? otherBatches[0].id : '');
-    setCloneDueDate(asg.dueDate ? asg.dueDate.slice(0, 16) : '');
-    setIsCloneModalOpen(true);
-  };
+  // Filter students based on top filter pills
+  const filteredStudents = studentsData.filter(s => {
+    if (studentFilter === 'TO_MARK') return s.marks === null && s.statusType !== 'missing';
+    if (studentFilter === 'LATE') return s.statusType === 'late';
+    if (studentFilter === 'MISSING') return s.statusType === 'missing';
+    return true;
+  });
 
-  const handleCloneAssignment = async (e) => {
-    e.preventDefault();
-    if (!activeAssignment || !targetBatchId) return;
-    setCloning(true);
-    setError('');
-    try {
-      await api.post(`/assignments/${activeAssignment.id}/clone`, {
-        targetBatchId: Number(targetBatchId),
-        newDueDate: cloneDueDate,
-      });
-      setSuccessMsg(`Assignment '${activeAssignment.title}' cloned to target batch successfully!`);
-      setIsCloneModalOpen(false);
-    } catch (err) {
-      setError(err.message || 'Failed to clone assignment');
-    } finally {
-      setCloning(false);
-    }
-  };
-
-  const handleOpenSubmitModal = (asg) => {
-    setActiveAssignment(asg);
-    setSubmissionText(asg.mySubmission?.textContent || '');
-    setSubmissionFiles([]);
-    setIsSubmitModalOpen(true);
-  };
-
-  const handleSubmitAssignment = async (e) => {
-    e.preventDefault();
-    if (!activeAssignment) return;
-    setSubmitting(true);
-    setError('');
-    try {
-      const formData = new FormData();
-      if (submissionText.trim()) {
-        formData.append('textContent', submissionText.trim());
-      }
-      for (let i = 0; i < submissionFiles.length; i++) {
-        formData.append('files', submissionFiles[i]);
-      }
-
-      const res = await api.post(`/assignments/${activeAssignment.id}/submissions`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      setDigitalReceipt(res.data);
-      setIsSubmitModalOpen(false);
-      setSuccessMsg('Submission received! Digital confirmation receipt generated.');
-      await fetchAssignments();
-    } catch (err) {
-      setError(err.message || 'Failed to submit assignment');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleOpenSubmissionsDesk = async (asg) => {
-    setActiveAssignment(asg);
-    setIsSubmissionsDeskOpen(true);
-    setLoadingSubmissions(true);
-    try {
-      const res = await api.get(`/assignments/${asg.id}/submissions`);
-      setSubmissionsList(res.data || []);
-
-      // Populate grading maps
-      const marksMap = {};
-      const feedbackMap = {};
-      (res.data || []).forEach(sub => {
-        if (sub.marks !== null) marksMap[sub.id] = sub.marks;
-        if (sub.feedback) feedbackMap[sub.id] = sub.feedback;
-      });
-      setGradingMarks(marksMap);
-      setGradingFeedback(feedbackMap);
-    } catch (err) {
-      setError(err.message || 'Failed to load submissions');
-    } finally {
-      setLoadingSubmissions(false);
-    }
-  };
-
-  const handleSaveGrade = async (subId) => {
-    setSavingGradeId(subId);
-    try {
-      const marks = Number(gradingMarks[subId]);
-      const feedback = gradingFeedback[subId] || '';
-      await api.patch(`/submissions/${subId}/grade`, { marks, feedback });
-      // Update local state
-      setSubmissionsList(prev => prev.map(s => s.id === subId ? { ...s, marks, feedback } : s));
-    } catch (err) {
-      alert(err.message || 'Failed to save grade');
-    } finally {
-      setSavingGradeId(null);
-    }
-  };
-
-  const handlePublishGrades = async () => {
-    if (!activeAssignment) return;
-    if (!window.confirm('Publish all graded marks to students? Enrolled students will be notified.')) return;
-    setPublishing(true);
-    try {
-      await api.post(`/assignments/${activeAssignment.id}/publish-grades`);
-      setSuccessMsg('Grades published to students!');
-      setSubmissionsList(prev => prev.map(s => ({ ...s, marksPublished: true })));
-      await fetchAssignments();
-    } catch (err) {
-      alert(err.message || 'Failed to publish grades');
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  const formatDueDate = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
+  const activeBatch = batches.find(b => b.id === selectedBatchId) || batches[0];
+  const batchTermName = activeBatch?.term || activeBatch?.name || 'Sem 3 · 2026–27';
 
   return (
     <div>
-      {/* Header & Batch Selector */}
+      {/* Top Header matching Image 2 */}
       <div style={{
         display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'space-between',
-        gap: '1rem',
-        marginBottom: '1.75rem',
+        gap: '1.5rem',
+        marginBottom: '2rem',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          <div>
-            <h2 className="font-display" style={{ fontSize: '1.4rem', fontWeight: 800 }}>
-              Coursework & Assignments
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-              {isFaculty 
-                ? 'Create assignments, set late policies, review student submissions, and release private grades.'
-                : 'Submit work before deadlines, receive digital receipts, and view your private grades & feedback.'}
-            </p>
+        <div>
+          {/* Breadcrumbs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.88rem', color: '#64748B', marginBottom: '0.45rem' }}>
+            <span style={{ color: '#0D9488', fontWeight: 600 }}>{courseCode}</span>
+            <span>/</span>
+            <span>{batchTermName}</span>
+            <span>/</span>
+            <span>Assignments</span>
           </div>
 
-          {/* Batch Selector (if multiple batches exist) */}
-          {batches && batches.length > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'var(--surface-alt)', padding: '0.35rem 0.75rem', borderRadius: '10px', border: '1px solid var(--border)' }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--ink-muted)' }}>Cohort Batch:</span>
-              <select
-                value={selectedBatchId || ''}
-                onChange={(e) => setSelectedBatchId(Number(e.target.value))}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  fontFamily: 'inherit',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  color: 'var(--ink)',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {batches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.term || 'Active'})</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Title */}
+          <h1 className="font-display" style={{ fontSize: '2.1rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.025em', marginBottom: '0.35rem' }}>
+            {selectedAssignment?.title || 'Normalization Practice Set'}
+          </h1>
+
+          {/* Meta line */}
+          <p style={{ fontSize: '0.88rem', color: '#64748B', margin: 0 }}>
+            Due Monday 20 Oct, 11:59 PM · {selectedAssignment?.maxMarks || 20} marks · Late submissions accepted and marked
+          </p>
         </div>
 
-        {isFaculty && (
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="btn-primary"
-            style={{ minHeight: '44px', padding: '0 1.4rem' }}
+            onClick={() => alert('Downloading all student submissions as ZIP archive...')}
+            style={{
+              backgroundColor: '#FFFFFF',
+              color: '#0F172A',
+              border: '1px solid #E2E8F0',
+              borderRadius: '10px',
+              padding: '0.6rem 1.25rem',
+              fontWeight: 600,
+              fontSize: '0.88rem',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+            }}
           >
-            <Plus size={18} />
-            <span>Create Assignment</span>
+            Download all (ZIP)
           </button>
-        )}
+
+          {isFaculty && (
+            <button
+              onClick={handlePublishMarks}
+              style={{
+                backgroundColor: '#0F766E',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '10px',
+                padding: '0.6rem 1.4rem',
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                boxShadow: '0 2px 4px rgba(15, 118, 110, 0.2)',
+              }}
+            >
+              Publish marks
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Messages */}
+      {/* Success Notification */}
       {successMsg && (
         <div style={{
-          padding: '0.85rem 1rem',
-          backgroundColor: 'var(--success-bg)',
-          color: 'var(--success-text)',
-          borderRadius: '10px',
-          marginBottom: '1.5rem',
+          backgroundColor: '#D1FAE5',
+          color: '#065F46',
+          borderRadius: '12px',
+          padding: '0.85rem 1.25rem',
+          marginBottom: '1.75rem',
           display: 'flex',
           alignItems: 'center',
-          gap: '0.5rem',
-          fontWeight: 500,
+          gap: '0.65rem',
+          fontWeight: 600,
+          fontSize: '0.9rem',
         }}>
-          <CheckCircle2 size={18} />
+          <CheckCircle2 size={18} color="#059669" />
           <span>{successMsg}</span>
         </div>
       )}
 
-      {error && (
-        <div style={{
-          padding: '0.85rem 1rem',
-          backgroundColor: 'var(--danger-bg)',
-          color: 'var(--danger-text)',
-          borderRadius: '10px',
-          marginBottom: '1.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          fontWeight: 500,
-        }}>
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Assignments List */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--ink-muted)' }}>
-          Loading assignments...
-        </div>
-      ) : assignments.length === 0 ? (
-        <div className="rounded-card-1" style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '16px',
-          border: '1px solid var(--border)',
-          padding: '3.5rem 2rem',
-          textAlign: 'center',
-        }}>
+      {/* Student Coursework View vs Faculty Desk View */}
+      {!isFaculty ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '24px', alignItems: 'start' }}>
+          {/* Left: Assignment Details & Reference Materials */}
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--info-bg)',
-            color: 'var(--info-text)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 1.25rem',
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            border: '1px solid #E2E8F0',
+            padding: '24px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
           }}>
-            <Calendar size={24} />
-          </div>
-          <h3 className="font-display" style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '0.4rem' }}>
-            No Coursework Assigned Yet
-          </h3>
-          <p style={{ color: 'var(--ink-muted)', fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto 1rem' }}>
-            {isFaculty 
-              ? 'Click "Create Assignment" above to assign problem sets, project milestones, or lab exercises.'
-              : 'Your faculty has not posted any assignments for this batch yet.'}
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {assignments.map((asg) => {
-            const isDuePassed = new Date(asg.dueDate) < new Date();
-            const studentSubmitted = asg.mySubmission !== null;
-            const mySub = asg.mySubmission;
+            <h3 className="font-display" style={{ fontSize: '1.18rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.75rem' }}>
+              Instructions & Problem Statement
+            </h3>
+            <p style={{ fontSize: '14.5px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: '24px' }}>
+              {selectedAssignment?.instructions || 'Solve the given practice questions on normalization up to BCNF. Provide dependency decomposition steps, identify lossless-join and dependency preservation for each table relation, and explain your assumptions.'}
+            </p>
 
-            return (
-              <div
-                key={asg.id}
-                className="rounded-card-1"
-                style={{
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid var(--border)',
-                  padding: '1.75rem',
-                  boxShadow: 'var(--shadow-card)',
-                }}
-              >
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ flex: 1, minWidth: '280px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        backgroundColor: 'var(--surface-muted)',
-                        color: 'var(--ink)',
-                        padding: '0.2rem 0.55rem',
-                        borderRadius: '6px',
-                        fontFamily: 'var(--font-code)',
-                      }}>
-                        Max: {asg.maxMarks} Marks
-                      </span>
-
-                      <span style={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        backgroundColor: asg.latePolicy === 'BLOCK_AFTER_DEADLINE' ? 'var(--danger-bg)' : 'var(--warning-bg)',
-                        color: asg.latePolicy === 'BLOCK_AFTER_DEADLINE' ? 'var(--danger-text)' : 'var(--warning-text)',
-                        padding: '0.2rem 0.55rem',
-                        borderRadius: '6px',
-                      }}>
-                        {asg.latePolicy === 'BLOCK_AFTER_DEADLINE' ? 'No Late Submissions' : 'Accepts Late (Flagged)'}
-                      </span>
-
-                      {!isFaculty && studentSubmitted && (
-                        <span style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                          backgroundColor: mySub.marksPublished ? 'var(--success-soft)' : 'var(--info-bg)',
-                          color: mySub.marksPublished ? 'var(--success)' : 'var(--info-text)',
-                          padding: '0.2rem 0.55rem',
-                          borderRadius: '6px',
-                        }}>
-                          {mySub.marksPublished ? `Graded: ${mySub.marks}/${asg.maxMarks}` : 'Submitted for Grading'}
-                        </span>
-                      )}
-                    </div>
-
-                    <h3 className="font-display" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--ink)', marginBottom: '0.5rem' }}>
-                      {asg.title}
-                    </h3>
-
-                    {asg.instructions && (
-                      <p style={{ color: 'var(--ink-secondary)', fontSize: '0.92rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: '1rem' }}>
-                        {asg.instructions}
-                      </p>
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', fontSize: '0.84rem', color: 'var(--ink-muted)', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <Clock size={15} color={isDuePassed ? 'var(--danger-text)' : 'var(--primary)'} />
-                        <span>Deadline: <strong style={{ color: isDuePassed ? 'var(--danger-text)' : 'var(--ink)' }}>{formatDueDate(asg.dueDate)}</strong></span>
+            {/* Reference Files */}
+            {selectedAssignment?.attachments && selectedAssignment.attachments.length > 0 && (
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Reference Attachments
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {selectedAssignment.attachments.map(att => (
+                    <a
+                      key={att.id}
+                      href={att.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #E2E8F0',
+                        textDecoration: 'none',
+                        color: '#0B132B',
+                        backgroundColor: '#F8FAFC',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <FileText size={18} color="#0D9488" />
+                        <span style={{ fontSize: '13.5px', fontWeight: 600 }}>{att.fileName}</span>
                       </div>
+                      <Download size={16} color="#64748B" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
-                      {isFaculty && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <Users size={15} />
-                          <span>Submissions: <strong>{asg.submissionCount || 0}</strong> / {asg.totalStudents || 0} students</span>
-                        </div>
-                      )}
-                    </div>
+          {/* Right: Submission Panel */}
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            border: '1px solid #E2E8F0',
+            padding: '24px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          }}>
+            <h3 className="font-display" style={{ fontSize: '1.18rem', fontWeight: 800, color: '#0F172A', marginBottom: '1rem' }}>
+              Your Submission
+            </h3>
+
+            {/* If submitted */}
+            {selectedAssignment?.mySubmission ? (
+              <div>
+                <div style={{
+                  backgroundColor: '#ECFDF5',
+                  border: '1px solid #A7F3D0',
+                  borderRadius: '12px',
+                  padding: '14px 16px',
+                  marginBottom: '16px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{
+                      backgroundColor: '#D1FAE5',
+                      color: '#065F46',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                    }}>
+                      {selectedAssignment.mySubmission.isLate ? 'Submitted Late' : 'Submitted On Time'}
+                    </span>
+                    <span style={{ fontSize: '12.5px', color: '#047857', fontWeight: 600 }}>
+                      Version {selectedAssignment.mySubmission.version || 1}
+                    </span>
                   </div>
-
-                  {/* Actions Area */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '180px' }}>
-                    {isFaculty ? (
-                      <>
-                        <button
-                          onClick={() => handleOpenSubmissionsDesk(asg)}
-                          className="btn-primary"
-                          style={{ minHeight: '40px', fontSize: '0.88rem', padding: '0 1rem' }}
-                        >
-                          <span>Review Submissions ({asg.submissionCount || 0})</span>
-                        </button>
-
-                        {batches && batches.length > 1 && (
-                          <button
-                            onClick={() => handleOpenCloneModal(asg)}
-                            className="btn-outline"
-                            style={{ minHeight: '38px', fontSize: '0.84rem', padding: '0 0.85rem' }}
-                          >
-                            <span>Clone to Batch</span>
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleOpenSubmitModal(asg)}
-                          disabled={isDuePassed && asg.latePolicy === 'BLOCK_AFTER_DEADLINE'}
-                          className="btn-primary"
-                          style={{ minHeight: '40px', fontSize: '0.88rem', padding: '0 1.25rem' }}
-                        >
-                          <Send size={15} />
-                          <span>{studentSubmitted ? 'Resubmit Solution' : 'Submit Solution'}</span>
-                        </button>
-                      </>
-                    )}
+                  <div style={{ fontSize: '12px', color: '#065F46', marginBottom: '4px' }}>
+                    Receipt: <strong>{selectedAssignment.mySubmission.receiptToken}</strong>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#047857' }}>
+                    Submitted: {new Date(selectedAssignment.mySubmission.submittedAt).toLocaleString()}
                   </div>
                 </div>
 
-                {/* Student Submission Feedback Banner (Private to Student) */}
-                {!isFaculty && studentSubmitted && (
+                {/* Marks and Feedback if published */}
+                {selectedAssignment.mySubmission.marksPublished ? (
                   <div style={{
-                    marginTop: '1.25rem',
-                    padding: '1.15rem',
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
                     borderRadius: '12px',
-                    backgroundColor: 'var(--canvas)',
-                    border: '1px solid var(--border)',
+                    padding: '16px',
+                    marginBottom: '16px',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Award size={18} color="var(--primary)" />
-                        <span style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--ink)' }}>
-                          Submission Status & Digital Receipt
-                        </span>
-                      </div>
-                      <span style={{ fontFamily: 'var(--font-code)', fontSize: '0.78rem', color: 'var(--primary-dark)', fontWeight: 700 }}>
-                        {mySub.receiptToken}
-                      </span>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '4px' }}>
+                      Evaluated Score
                     </div>
-
-                    <div style={{ fontSize: '0.82rem', color: 'var(--ink-muted)', marginBottom: '0.75rem' }}>
-                      Submitted at {new Date(mySub.submittedAt).toLocaleString()} {mySub.late ? '(Marked Late)' : '(On Time)'} • Version {mySub.version}
+                    <div style={{ fontSize: '24px', fontWeight: 800, color: '#0B132B', marginBottom: '8px', fontFamily: 'var(--font-code)' }}>
+                      {selectedAssignment.mySubmission.marks} <span style={{ fontSize: '16px', color: '#64748B' }}>/ {selectedAssignment.maxMarks}</span>
                     </div>
-
-                    {mySub.marksPublished ? (
-                      <div style={{ padding: '0.85rem', backgroundColor: '#FFFFFF', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                          <span style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontWeight: 600 }}>Your Private Score:</span>
-                          <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--primary-dark)', fontFamily: 'var(--font-code)' }}>
-                            {mySub.marks} / {asg.maxMarks}
-                          </span>
+                    {selectedAssignment.mySubmission.feedback && (
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '4px' }}>
+                          Faculty Feedback
                         </div>
-                        {mySub.feedback && (
-                          <div style={{ fontSize: '0.88rem', color: 'var(--ink)', marginTop: '0.35rem', fontStyle: 'italic' }}>
-                            "{mySub.feedback}"
+                        <p style={{ fontSize: '13.5px', color: '#334155', margin: 0, fontStyle: 'italic', lineHeight: 1.5 }}>
+                          "{selectedAssignment.mySubmission.feedback}"
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '12px 14px',
+                    backgroundColor: '#FFFBEB',
+                    borderRadius: '10px',
+                    border: '1px solid #FEF3C7',
+                    color: '#B45309',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    marginBottom: '16px',
+                  }}>
+                    Your submission has been received. Faculty evaluation will appear here once published.
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Upload Form */
+              <form onSubmit={handleStudentSubmit}>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Upload Submission File (PDF, DOCX, ZIP)
+                  </label>
+                  <input
+                    type="file"
+                    required
+                    onChange={(e) => setSubmissionFile(e.target.files[0])}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      border: '1px dashed #CBD5E1',
+                      borderRadius: '10px',
+                      backgroundColor: '#F8FAFC',
+                      fontSize: '13px',
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Submission Notes / Remarks (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Add any notes or context for your submission..."
+                    value={submissionText}
+                    onChange={(e) => setSubmissionText(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '13px',
+                      resize: 'vertical',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#0F766E',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: '10px',
+                    padding: '12px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                    opacity: submitting ? 0.7 : 1,
+                  }}
+                >
+                  {submitting ? 'Submitting Work...' : 'Submit Assignment'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Faculty Grading Desk matching Image 2 */
+        <>
+          {/* Dynamic 4 Stat Cards Row */}
+          {(() => {
+            const totalSubmissions = studentsData.length;
+            const lateSubmissions = studentsData.filter(s => s.statusType === 'late').length;
+            const markedSubmissions = studentsData.filter(s => s.marks !== null && s.marks !== undefined).length;
+            const toMarkSubmissions = studentsData.filter(s => s.marks === null || s.marks === undefined).length;
+            const maxMarks = selectedAssignment?.maxMarks || 20;
+
+            return (
+              <>
+                <div className="cm-grid-4-stats" style={{
+                  marginBottom: '2rem',
+                }}>
+                  {/* Card 1: Submitted */}
+                  <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '16px',
+                    border: '1px solid #E2E8F0',
+                    padding: '1.25rem 1.4rem',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  }}>
+                    <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      Submitted
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', marginBottom: '0.85rem' }}>
+                      <span style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-code)' }}>{totalSubmissions}</span>
+                      <span style={{ fontSize: '0.92rem', color: '#64748B', fontWeight: 600 }}>total</span>
+                    </div>
+                    <div style={{ width: '100%', height: '4px', backgroundColor: '#F1F5F9', borderRadius: '9999px', overflow: 'hidden' }}>
+                      <div style={{ width: totalSubmissions > 0 ? '100%' : '0%', height: '100%', backgroundColor: '#059669', borderRadius: '9999px' }} />
+                    </div>
+                  </div>
+
+                  {/* Card 2: Submitted late */}
+                  <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '16px',
+                    border: '1px solid #E2E8F0',
+                    padding: '1.25rem 1.4rem',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  }}>
+                    <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      Submitted late
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', marginBottom: '0.85rem' }}>
+                      <span style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-code)' }}>{lateSubmissions}</span>
+                      <span style={{ fontSize: '0.92rem', color: '#64748B', fontWeight: 600 }}>of {totalSubmissions}</span>
+                    </div>
+                    <div style={{ width: '100%', height: '4px', backgroundColor: '#F1F5F9', borderRadius: '9999px', overflow: 'hidden' }}>
+                      <div style={{ width: totalSubmissions > 0 ? `${Math.round((lateSubmissions / totalSubmissions) * 100)}%` : '0%', height: '100%', backgroundColor: '#D97706', borderRadius: '9999px' }} />
+                    </div>
+                  </div>
+
+                  {/* Card 3: To mark */}
+                  <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '16px',
+                    border: '1px solid #E2E8F0',
+                    padding: '1.25rem 1.4rem',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  }}>
+                    <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      To mark
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', marginBottom: '0.85rem' }}>
+                      <span style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-code)' }}>{toMarkSubmissions}</span>
+                      <span style={{ fontSize: '0.92rem', color: '#64748B', fontWeight: 600 }}>of {totalSubmissions}</span>
+                    </div>
+                    <div style={{ width: '100%', height: '4px', backgroundColor: '#F1F5F9', borderRadius: '9999px', overflow: 'hidden' }}>
+                      <div style={{ width: totalSubmissions > 0 ? `${Math.round((toMarkSubmissions / totalSubmissions) * 100)}%` : '0%', height: '100%', backgroundColor: '#DC2626', borderRadius: '9999px' }} />
+                    </div>
+                  </div>
+
+                  {/* Card 4: Marked */}
+                  <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '16px',
+                    border: '1px solid #E2E8F0',
+                    padding: '1.25rem 1.4rem',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  }}>
+                    <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      Marked
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem', marginBottom: '0.85rem' }}>
+                      <span style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-code)' }}>{markedSubmissions}</span>
+                      <span style={{ fontSize: '0.92rem', color: '#64748B', fontWeight: 600 }}>of {totalSubmissions}</span>
+                    </div>
+                    <div style={{ width: '100%', height: '4px', backgroundColor: '#F1F5F9', borderRadius: '9999px', overflow: 'hidden' }}>
+                      <div style={{ width: totalSubmissions > 0 ? `${Math.round((markedSubmissions / totalSubmissions) * 100)}%` : '0%', height: '100%', backgroundColor: '#0B132B', borderRadius: '9999px' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main 2-Column Split: Left Students List & Right Grading Desk */}
+                {totalSubmissions === 0 ? (
+                  <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '16px',
+                    border: '1px solid #E2E8F0',
+                    padding: '3.5rem 2rem',
+                    textAlign: 'center',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  }}>
+                    <div style={{
+                      width: '56px',
+                      height: '56px',
+                      borderRadius: '50%',
+                      backgroundColor: '#F8FAFC',
+                      border: '1px solid #E2E8F0',
+                      color: '#64748B',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: '1rem',
+                    }}>
+                      <BookOpen size={24} />
+                    </div>
+                    <h3 className="font-display" style={{ fontSize: '1.18rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.4rem' }}>
+                      No submissions received yet
+                    </h3>
+                    <p style={{ fontSize: '0.88rem', color: '#64748B', maxWidth: '440px', margin: '0 auto' }}>
+                      When enrolled students upload their solution files or submit their responses, their submissions will appear here for your evaluation and feedback.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="cm-grid-desk-split" style={{
+                    alignItems: 'start',
+                  }}>
+                    {/* Left Column: Students Table */}
+                    <div>
+                      {/* Header & Filter Pills */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                        <h2 className="font-display" style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                          Submissions
+                        </h2>
+
+                        <div className="cm-scrollable-pills" style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button
+                            onClick={() => setStudentFilter('ALL')}
+                            style={{
+                              backgroundColor: studentFilter === 'ALL' ? '#0B132B' : '#FFFFFF',
+                              color: studentFilter === 'ALL' ? '#FFFFFF' : '#64748B',
+                              border: '1px solid',
+                              borderColor: studentFilter === 'ALL' ? '#0B132B' : '#E2E8F0',
+                              borderRadius: '9999px',
+                              padding: '0.3rem 0.85rem',
+                              fontSize: '0.82rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            All ({totalSubmissions})
+                          </button>
+
+                          <button
+                            onClick={() => setStudentFilter('TO_MARK')}
+                            style={{
+                              backgroundColor: studentFilter === 'TO_MARK' ? '#0B132B' : '#FFFFFF',
+                              color: studentFilter === 'TO_MARK' ? '#FFFFFF' : '#64748B',
+                              border: '1px solid',
+                              borderColor: studentFilter === 'TO_MARK' ? '#0B132B' : '#E2E8F0',
+                              borderRadius: '9999px',
+                              padding: '0.3rem 0.85rem',
+                              fontSize: '0.82rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            To mark ({toMarkSubmissions})
+                          </button>
+
+                          <button
+                            onClick={() => setStudentFilter('LATE')}
+                            style={{
+                              backgroundColor: studentFilter === 'LATE' ? '#0B132B' : '#FFFFFF',
+                              color: studentFilter === 'LATE' ? '#FFFFFF' : '#64748B',
+                              border: '1px solid',
+                              borderColor: studentFilter === 'LATE' ? '#0B132B' : '#E2E8F0',
+                              borderRadius: '9999px',
+                              padding: '0.3rem 0.85rem',
+                              fontSize: '0.82rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Late ({lateSubmissions})
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Table Container */}
+                      <div className="cm-table-responsive" style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '16px',
+                        border: '1px solid #E2E8F0',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                      }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#FAFAFA' }}>
+                              <th style={{ padding: '0.85rem 1.4rem', fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                                Student
+                              </th>
+                              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                                Status
+                              </th>
+                              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                                Submitted
+                              </th>
+                              <th style={{ padding: '0.85rem 1.4rem', fontSize: '0.78rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', textAlign: 'right' }}>
+                                Marks
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredStudents.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} style={{ padding: '2.5rem', textAlign: 'center', color: '#64748B', fontSize: '0.88rem' }}>
+                                  No submissions found matching this filter.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredStudents.map((student) => {
+                                const isSelected = student.id === selectedStudentId;
+
+                                return (
+                                  <tr
+                                    key={student.id}
+                                    onClick={() => handleSelectStudent(student)}
+                                    style={{
+                                      borderBottom: '1px solid #F1F5F9',
+                                      backgroundColor: isSelected ? '#F0FDF4' : 'transparent',
+                                      borderLeft: isSelected ? '3px solid #0D9488' : '3px solid transparent',
+                                      cursor: 'pointer',
+                                      transition: 'background-color 0.1s ease',
+                                    }}
+                                  >
+                                    {/* Student info */}
+                                    <td style={{ padding: '0.9rem 1.4rem' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                        <div style={{
+                                          width: '34px',
+                                          height: '34px',
+                                          borderRadius: '50%',
+                                          backgroundColor: '#E2E8F0',
+                                          color: '#334155',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontWeight: 800,
+                                          fontSize: '0.78rem',
+                                        }}>
+                                          {student.initials}
+                                        </div>
+                                        <div>
+                                          <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0F172A' }}>
+                                            {student.name}
+                                          </div>
+                                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                                            {student.fileName || (student.filesCount > 0 ? `${student.filesCount} file(s)` : 'Online submission')}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    {/* Status */}
+                                    <td style={{ padding: '0.9rem 1rem' }}>
+                                      <span style={{
+                                        backgroundColor: student.statusType === 'on_time' ? '#D1FAE5' : (student.statusType === 'late' ? '#FEF3C7' : '#FEE2E2'),
+                                        color: student.statusType === 'on_time' ? '#065F46' : (student.statusType === 'late' ? '#B45309' : '#DC2626'),
+                                        borderRadius: '6px',
+                                        padding: '0.2rem 0.6rem',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                      }}>
+                                        {student.status}
+                                      </span>
+                                    </td>
+
+                                    {/* Submitted Time */}
+                                    <td style={{ padding: '0.9rem 1rem', fontSize: '0.85rem', color: '#64748B' }}>
+                                      {student.submittedAt}
+                                    </td>
+
+                                    {/* Marks */}
+                                    <td style={{ padding: '0.9rem 1.4rem', textAlign: 'right' }}>
+                                      {isSelected ? (
+                                        <span style={{ color: '#0D9488', fontWeight: 700, fontSize: '0.88rem' }}>
+                                          Selected
+                                        </span>
+                                      ) : student.marks !== null && student.marks !== undefined ? (
+                                        <span style={{ fontWeight: 800, color: '#0F172A', fontSize: '0.92rem', fontFamily: 'var(--font-code)' }}>
+                                          {student.marks} / {maxMarks}
+                                        </span>
+                                      ) : (
+                                        <span style={{ color: '#64748B', fontSize: '0.85rem' }}>
+                                          To mark
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Selected Student Grading Desk */}
+                    {selectedStudent ? (
+                      <div style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '20px',
+                        border: '1px solid #E2E8F0',
+                        padding: '1.75rem',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                      }}>
+                        {/* Student Header */}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem', marginBottom: '1rem' }}>
+                          <div style={{
+                            width: '44px',
+                            height: '44px',
+                            borderRadius: '50%',
+                            backgroundColor: '#E0F2FE',
+                            color: '#0284C7',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 800,
+                            fontSize: '0.95rem',
+                          }}>
+                            {selectedStudent.initials}
                           </div>
-                        )}
+
+                          <div>
+                            <h3 className="font-display" style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                              {selectedStudent.name}
+                            </h3>
+                            <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '0.15rem 0 0' }}>
+                              Submitted {selectedStudent.submittedAt}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Badges row */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.25rem' }}>
+                          {selectedStudent.lateDuration && (
+                            <span style={{
+                              backgroundColor: '#FEF3C7',
+                              color: '#B45309',
+                              borderRadius: '6px',
+                              padding: '0.2rem 0.6rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              alignSelf: 'flex-start',
+                            }}>
+                              {selectedStudent.lateDuration}
+                            </span>
+                          )}
+                          {selectedStudent.receiptToken && (
+                            <span style={{
+                              backgroundColor: '#F1F5F9',
+                              color: '#475569',
+                              borderRadius: '6px',
+                              padding: '0.2rem 0.6rem',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              fontFamily: 'var(--font-code)',
+                              alignSelf: 'flex-start',
+                            }}>
+                              Receipt: {selectedStudent.receiptToken}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Submission Content / Files Section */}
+                        <div style={{ marginBottom: '1.25rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '0.45rem' }}>
+                            Submission Artifacts
+                          </label>
+
+                          {selectedStudent.fileUrl || selectedStudent.fileName ? (
+                            <div style={{
+                              border: '1px solid #E2E8F0',
+                              borderRadius: '10px',
+                              padding: '0.75rem 1rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
+                                <div style={{
+                                  width: '34px',
+                                  height: '34px',
+                                  borderRadius: '6px',
+                                  backgroundColor: '#FEE2E2',
+                                  color: '#DC2626',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: 800,
+                                  fontFamily: 'var(--font-code)',
+                                  fontSize: '0.72rem',
+                                }}>
+                                  FILE
+                                </div>
+                                <div style={{ overflow: 'hidden' }}>
+                                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                    {selectedStudent.fileName || 'Attached Solution'}
+                                  </div>
+                                  <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                                    {selectedStudent.fileSize || 'Attached'}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => {
+                                  if (selectedStudent.fileUrl) {
+                                    window.open(selectedStudent.fileUrl, '_blank');
+                                  } else {
+                                    alert(`Opening ${selectedStudent.fileName} for review.`);
+                                  }
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#0D9488',
+                                  fontWeight: 700,
+                                  fontSize: '0.85rem',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                View
+                              </button>
+                            </div>
+                          ) : selectedStudent.textContent ? (
+                            <div style={{
+                              border: '1px solid #E2E8F0',
+                              borderRadius: '10px',
+                              padding: '0.75rem 1rem',
+                              backgroundColor: '#F8FAFC',
+                              fontSize: '0.85rem',
+                              color: '#334155',
+                              lineHeight: 1.5,
+                              maxHeight: '120px',
+                              overflowY: 'auto',
+                            }}>
+                              {selectedStudent.textContent}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.85rem', color: '#64748B', fontStyle: 'italic' }}>
+                              No files attached with this submission.
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Marks Input */}
+                        <div style={{ marginBottom: '1.25rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '0.45rem' }}>
+                            Marks
+                          </label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <input
+                              type="number"
+                              min={0}
+                              max={maxMarks}
+                              value={currentMark}
+                              onChange={(e) => setCurrentMark(e.target.value)}
+                              style={{
+                                width: '75px',
+                                padding: '0.55rem 0.75rem',
+                                borderRadius: '8px',
+                                border: '1px solid #CBD5E1',
+                                fontSize: '1.2rem',
+                                fontWeight: 800,
+                                color: '#0F172A',
+                                textAlign: 'center',
+                                fontFamily: 'var(--font-code)',
+                              }}
+                            />
+                            <span style={{ fontSize: '1.1rem', color: '#64748B', fontWeight: 600 }}>
+                              / {maxMarks}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Feedback Textarea */}
+                        <div style={{ marginBottom: '1.25rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '0.45rem' }}>
+                            Feedback
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={currentFeedback}
+                            onChange={(e) => setCurrentFeedback(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              borderRadius: '10px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.85rem',
+                              color: '#0F172A',
+                              lineHeight: 1.45,
+                              resize: 'vertical',
+                            }}
+                          />
+                          <p style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.35rem', lineHeight: 1.35 }}>
+                            Only this student can see their marks, and only after you publish.
+                          </p>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <button
+                            onClick={handleSaveGrade}
+                            style={{
+                              flex: 1,
+                              backgroundColor: '#FFFFFF',
+                              color: '#0F172A',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '10px',
+                              padding: '0.65rem 1rem',
+                              fontWeight: 700,
+                              fontSize: '0.88rem',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={handleSaveAndNext}
+                            style={{
+                              flex: 1.5,
+                              backgroundColor: '#0B132B',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: '10px',
+                              padding: '0.65rem 1rem',
+                              fontWeight: 700,
+                              fontSize: '0.88rem',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Save and next
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <div style={{ fontSize: '0.84rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
-                        Your work is safely recorded. Grades and private feedback will appear here once released by the instructor.
+                      <div style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '20px',
+                        border: '1px solid #E2E8F0',
+                        padding: '2.5rem 1.5rem',
+                        textAlign: 'center',
+                        color: '#64748B',
+                      }}>
+                        Select a submission on the left to grade.
                       </div>
                     )}
                   </div>
                 )}
-              </div>
+              </>
             );
-          })}
-        </div>
-      )}
-
-      {/* MODAL 1: Create Assignment */}
-      {isCreateModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.45)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1rem',
-        }}>
-          <div className="rounded-card-1" style={{
-            backgroundColor: '#FFFFFF',
-            width: '100%',
-            maxWidth: '560px',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-modal)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 700 }}>
-                Create New Assignment
-              </h3>
-              <button onClick={() => setIsCreateModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <X size={20} color="var(--ink-muted)" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateAssignment}>
-              <div style={{ marginBottom: '1.15rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Assignment Title *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Assignment 2: Normalization & Indexing"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-input)',
-                    fontSize: '0.9rem',
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '1.15rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Instructions / Problem Description
-                </label>
-                <textarea
-                  rows={4}
-                  placeholder="Specify problem statements, submission requirements, and expected schema design..."
-                  value={newInstructions}
-                  onChange={(e) => setNewInstructions(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-input)',
-                    fontSize: '0.9rem',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.15rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                    Due Date & Time *
-                  </label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={newDueDate}
-                    onChange={(e) => setNewDueDate(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '0.65rem 0.75rem',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border-input)',
-                      fontSize: '0.88rem',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                    Maximum Marks
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={newMaxMarks}
-                    onChange={(e) => setNewMaxMarks(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '0.65rem 0.75rem',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border-input)',
-                      fontSize: '0.88rem',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Late Submission Policy
-                </label>
-                <select
-                  value={newLatePolicy}
-                  onChange={(e) => setNewLatePolicy(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-input)',
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  <option value="BLOCK_AFTER_DEADLINE">Block Submissions After Deadline</option>
-                  <option value="ACCEPT_MARK_LATE">Accept and Mark as "Late"</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="btn-outline"
-                  style={{ minHeight: '40px', padding: '0 1.25rem' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="btn-primary"
-                  style={{ minHeight: '40px', padding: '0 1.5rem' }}
-                >
-                  {creating ? 'Publishing...' : 'Publish Assignment'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: Student Submit Solution */}
-      {isSubmitModalOpen && activeAssignment && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.45)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1rem',
-        }}>
-          <div className="rounded-card-1" style={{
-            backgroundColor: '#FFFFFF',
-            width: '100%',
-            maxWidth: '560px',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-modal)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <div>
-                <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 700 }}>
-                  Submit Assignment
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                  {activeAssignment.title}
-                </p>
-              </div>
-              <button onClick={() => setIsSubmitModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <X size={20} color="var(--ink-muted)" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitAssignment}>
-              <div style={{ marginBottom: '1.25rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Written Solution / Notes (Optional)
-                </label>
-                <textarea
-                  rows={4}
-                  placeholder="Paste solution text, repository link, or notes for the faculty..."
-                  value={submissionText}
-                  onChange={(e) => setSubmissionText(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-input)',
-                    fontSize: '0.9rem',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Upload Solution Files (PDF, Images, ZIP, DOCX)
-                </label>
-                <input
-                  type="file"
-                  multiple
-                  onChange={(e) => setSubmissionFiles(Array.from(e.target.files))}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px dashed var(--border-dashed)',
-                    fontSize: '0.85rem',
-                    backgroundColor: 'var(--surface-alt)',
-                  }}
-                />
-                <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', marginTop: '0.35rem', display: 'block' }}>
-                  Max 25 MB per file. A digital confirmation receipt with server timestamp will be issued upon upload.
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsSubmitModalOpen(false)}
-                  className="btn-outline"
-                  style={{ minHeight: '40px', padding: '0 1.25rem' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="btn-primary"
-                  style={{ minHeight: '40px', padding: '0 1.5rem' }}
-                >
-                  {submitting ? 'Submitting & Generating Receipt...' : 'Confirm Submission'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 3: Digital Confirmation Receipt */}
-      {digitalReceipt && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.45)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1100,
-          padding: '1rem',
-        }}>
-          <div className="rounded-card-1" style={{
-            backgroundColor: '#FFFFFF',
-            width: '100%',
-            maxWidth: '500px',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-modal)',
-            textAlign: 'center',
-          }}>
-            <div style={{
-              width: '60px',
-              height: '60px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--success-soft)',
-              color: 'var(--success)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 1.25rem',
-            }}>
-              <CheckCircle2 size={32} />
-            </div>
-
-            <h3 className="font-display" style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--ink)', marginBottom: '0.35rem' }}>
-              Submission Confirmed
-            </h3>
-            <p style={{ color: 'var(--ink-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-              Your coursework was received by the server. Keep this digital receipt for verification.
-            </p>
-
-            <div style={{
-              backgroundColor: 'var(--canvas)',
-              border: '1px dashed var(--border-dashed)',
-              borderRadius: '12px',
-              padding: '1.25rem',
-              marginBottom: '1.5rem',
-              textAlign: 'left',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase' }}>
-                  Digital Receipt Token
-                </span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(digitalReceipt.receiptToken);
-                    setCopiedReceipt(true);
-                    setTimeout(() => setCopiedReceipt(false), 2000);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    color: 'var(--primary)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.2rem',
-                  }}
-                >
-                  {copiedReceipt ? <Check size={14} /> : <Copy size={14} />}
-                  <span>{copiedReceipt ? 'Copied' : 'Copy'}</span>
-                </button>
-              </div>
-
-              <div style={{ fontFamily: 'var(--font-code)', fontSize: '1.25rem', fontWeight: 800, color: 'var(--primary-dark)', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
-                {digitalReceipt.receiptToken}
-              </div>
-
-              <div style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <div>Timestamp: <strong>{new Date(digitalReceipt.submittedAt).toLocaleString()}</strong></div>
-                <div>Status: <strong style={{ color: digitalReceipt.late ? 'var(--warning-text)' : 'var(--success)' }}>{digitalReceipt.late ? 'Late Submission' : 'On-Time Submission'}</strong></div>
-                <div>Version: <strong>v{digitalReceipt.version}</strong></div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setDigitalReceipt(null)}
-              className="btn-primary"
-              style={{ width: '100%', minHeight: '42px' }}
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: Faculty Submissions Review Desk */}
-      {isSubmissionsDeskOpen && activeAssignment && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.45)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1.5rem',
-        }}>
-          <div className="rounded-card-1" style={{
-            backgroundColor: '#FFFFFF',
-            width: '100%',
-            maxWidth: '1000px',
-            maxHeight: '92vh',
-            display: 'flex',
-            flexDirection: 'column',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-modal)',
-            overflow: 'hidden',
-          }}>
-            {/* Header */}
-            <div style={{
-              padding: '1.5rem 2rem',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem',
-            }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                  <span className="badge-chip">Grading Desk</span>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--ink-muted)' }}>Max: {activeAssignment.maxMarks} marks</span>
-                </div>
-                <h3 className="font-display" style={{ fontSize: '1.4rem', fontWeight: 800 }}>
-                  {activeAssignment.title}
-                </h3>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <button
-                  onClick={handlePublishGrades}
-                  disabled={publishing}
-                  className="btn-primary"
-                  style={{ minHeight: '40px', padding: '0 1.25rem', fontSize: '0.88rem' }}
-                >
-                  <Award size={16} />
-                  <span>{publishing ? 'Publishing...' : 'Publish All Grades'}</span>
-                </button>
-
-                <button onClick={() => setIsSubmissionsDeskOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                  <X size={22} color="var(--ink-muted)" />
-                </button>
-              </div>
-            </div>
-
-            {/* Submissions Content Table */}
-            <div style={{ padding: '1.5rem 2rem', overflowY: 'auto', flex: 1 }}>
-              {loadingSubmissions ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--ink-muted)' }}>
-                  Loading submissions...
-                </div>
-              ) : submissionsList.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--ink-muted)' }}>
-                  No submissions received yet for this assignment.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  {submissionsList.map((sub) => (
-                    <div
-                      key={sub.id}
-                      style={{
-                        padding: '1.25rem',
-                        borderRadius: '12px',
-                        backgroundColor: 'var(--canvas)',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        <div>
-                          <strong style={{ fontSize: '1rem', color: 'var(--ink)' }}>{sub.studentName}</strong>
-                          <span style={{ fontSize: '0.82rem', color: 'var(--ink-muted)', marginLeft: '0.5rem' }}>({sub.studentEmail})</span>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{
-                            fontSize: '0.72rem',
-                            fontWeight: 700,
-                            padding: '0.15rem 0.45rem',
-                            borderRadius: '4px',
-                            backgroundColor: sub.late ? 'var(--warning-bg)' : 'var(--success-soft)',
-                            color: sub.late ? 'var(--warning-text)' : 'var(--success)',
-                          }}>
-                            {sub.late ? 'Late' : 'On-Time'}
-                          </span>
-
-                          <span style={{ fontFamily: 'var(--font-code)', fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
-                            {sub.receiptToken}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Text content if present */}
-                      {sub.textContent && (
-                        <div style={{
-                          backgroundColor: '#FFFFFF',
-                          padding: '0.75rem',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border)',
-                          fontSize: '0.86rem',
-                          marginBottom: '0.75rem',
-                          color: 'var(--ink-secondary)',
-                          whiteSpace: 'pre-wrap',
-                        }}>
-                          {sub.textContent}
-                        </div>
-                      )}
-
-                      {/* Attachments if present */}
-                      {sub.attachments && sub.attachments.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.85rem' }}>
-                          {sub.attachments.map(att => (
-                            <a
-                              key={att.id}
-                              href={`http://localhost:8081${att.fileUrl}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.35rem',
-                                padding: '0.35rem 0.65rem',
-                                borderRadius: '6px',
-                                backgroundColor: '#FFFFFF',
-                                border: '1px solid var(--border)',
-                                fontSize: '0.8rem',
-                                color: 'var(--primary)',
-                                textDecoration: 'none',
-                                fontWeight: 600,
-                              }}
-                            >
-                              <FileText size={14} />
-                              <span>{att.fileName}</span>
-                              <Download size={13} />
-                            </a>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Grading Input Row */}
-                      <div style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                        paddingTop: '0.75rem',
-                        borderTop: '1px solid rgba(0,0,0,0.06)',
-                      }}>
-                        <div style={{ width: '130px' }}>
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            max={activeAssignment.maxMarks}
-                            placeholder={`Marks (/${activeAssignment.maxMarks})`}
-                            value={gradingMarks[sub.id] !== undefined ? gradingMarks[sub.id] : ''}
-                            onChange={(e) => setGradingMarks({ ...gradingMarks, [sub.id]: e.target.value })}
-                            style={{
-                              width: '100%',
-                              padding: '0.45rem 0.65rem',
-                              borderRadius: '6px',
-                              border: '1px solid var(--border-input)',
-                              fontSize: '0.85rem',
-                              fontFamily: 'var(--font-code)',
-                              fontWeight: 700,
-                            }}
-                          />
-                        </div>
-
-                        <div style={{ flex: 1, minWidth: '220px' }}>
-                          <input
-                            type="text"
-                            placeholder="Private feedback to student..."
-                            value={gradingFeedback[sub.id] || ''}
-                            onChange={(e) => setGradingFeedback({ ...gradingFeedback, [sub.id]: e.target.value })}
-                            style={{
-                              width: '100%',
-                              padding: '0.45rem 0.65rem',
-                              borderRadius: '6px',
-                              border: '1px solid var(--border-input)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                        </div>
-
-                        <button
-                          onClick={() => handleSaveGrade(sub.id)}
-                          disabled={savingGradeId === sub.id}
-                          className="btn-outline"
-                          style={{ minHeight: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}
-                        >
-                          {savingGradeId === sub.id ? 'Saving...' : 'Save Grade'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: Clone Assignment into Another Batch */}
-      {isCloneModalOpen && activeAssignment && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.45)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1rem',
-        }}>
-          <div className="rounded-card-1" style={{
-            backgroundColor: '#FFFFFF',
-            width: '100%',
-            maxWidth: '480px',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-modal)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 700 }}>
-                Clone Assignment to Batch
-              </h3>
-              <button onClick={() => setIsCloneModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <X size={20} color="var(--ink-muted)" />
-              </button>
-            </div>
-
-            <p style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', marginBottom: '1.25rem' }}>
-              Clone <strong>"{activeAssignment.title}"</strong> into another cohort batch with a shifted deadline.
-            </p>
-
-            <form onSubmit={handleCloneAssignment}>
-              <div style={{ marginBottom: '1.15rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Target Batch *
-                </label>
-                <select
-                  required
-                  value={targetBatchId}
-                  onChange={(e) => setTargetBatchId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-input)',
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  <option value="">Select Target Batch</option>
-                  {batches.map(b => (
-                    <option key={b.id} value={b.id}>{b.name} ({b.term || 'Active'})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Shifted Due Date & Time *
-                </label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={cloneDueDate}
-                  onChange={(e) => setCloneDueDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.75rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-input)',
-                    fontSize: '0.88rem',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsCloneModalOpen(false)}
-                  className="btn-outline"
-                  style={{ minHeight: '40px', padding: '0 1.25rem' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={cloning}
-                  className="btn-primary"
-                  style={{ minHeight: '40px', padding: '0 1.5rem' }}
-                >
-                  {cloning ? 'Cloning...' : 'Confirm Clone'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+          })()}
+    </>
+  )}
+</div>
+);
 }

@@ -47,6 +47,8 @@ Backend/.project
 Backend/.settings
 Backend/.springBeans
 Backend/.sts4-cache
+Backend/uploads/
+uploads/
 
 # ==========================================
 # Frontend (React & Node.js)

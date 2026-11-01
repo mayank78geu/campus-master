@@ -26,4 +26,6 @@ public interface ResourceRepository extends JpaRepository<Resource, Long> {
            " LOWER(r.description) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
            " LOWER(r.fileName) LIKE LOWER(CONCAT('%', :query, '%')))")
     List<Resource> searchInCourse(@Param("course") Course course, @Param("query") String query);
+
+    List<Resource> findTop6ByIsPublishedTrueOrderByCreatedAtDesc();
 }

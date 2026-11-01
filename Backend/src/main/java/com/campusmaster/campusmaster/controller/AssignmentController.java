@@ -68,7 +68,7 @@ public class AssignmentController {
         return ResponseEntity.ok(ApiResponse.success("Grades published to students successfully", null));
     }
 
-    @GetMapping("/student/deadlines")
+    @GetMapping({"/student/deadlines", "/assignments/student/deadlines"})
     @PreAuthorize("hasRole('STUDENT')")
     public ResponseEntity<ApiResponse<List<DeadlineResponse>>> getUpcomingDeadlines() {
         User user = authService.getCurrentUser();

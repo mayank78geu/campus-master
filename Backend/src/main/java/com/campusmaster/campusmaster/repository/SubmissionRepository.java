@@ -14,4 +14,5 @@ public interface SubmissionRepository extends JpaRepository<Submission, Long> {
     Optional<Submission> findByReceiptToken(String receiptToken);
     long countByAssignmentId(Long assignmentId);
     long countByAssignmentIdAndIsLate(Long assignmentId, boolean isLate);
+    List<Submission> findByAssignment_Batch_Course_OwnerAndMarksIsNullOrderBySubmittedAtDesc(com.campusmaster.campusmaster.entity.User owner);
 }

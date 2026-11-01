@@ -16,4 +16,5 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
     List<Enrollment> findByBatchOrderByJoinedAtDesc(Batch batch);
     List<Enrollment> findByBatchAndStatusOrderByJoinedAtDesc(Batch batch, EnrollmentStatus status);
     List<Enrollment> findByStudentAndStatusOrderByJoinedAtDesc(User student, EnrollmentStatus status);
+    List<Enrollment> findByBatch_Course_OwnerAndStatusOrderByJoinedAtDesc(User owner, EnrollmentStatus status);
 }

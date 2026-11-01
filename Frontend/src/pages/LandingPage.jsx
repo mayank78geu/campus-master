@@ -91,7 +91,7 @@ export default function LandingPage({ onOpenAuth }) {
         {/* Feature Grid with signature asymmetric geometry from design.html */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))',
           gap: '1.5rem',
           textAlign: 'left',
           marginTop: '3rem',

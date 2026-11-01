@@ -199,6 +199,14 @@ public class BatchService {
         return responses;
     }
 
+    @Transactional(readOnly = true)
+    public List<EnrollmentResponse> getFacultyPendingEnrollments(User faculty) {
+        return enrollmentRepository.findByBatch_Course_OwnerAndStatusOrderByJoinedAtDesc(faculty, EnrollmentStatus.PENDING)
+            .stream()
+            .map(EnrollmentResponse::fromEntity)
+            .collect(Collectors.toList());
+    }
+
     private void validateFacultyOwnership(Course course, User faculty) {
         boolean isOwner = course.getOwner().getId().equals(faculty.getId());
         boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));

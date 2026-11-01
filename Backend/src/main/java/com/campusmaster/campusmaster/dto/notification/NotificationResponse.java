@@ -18,6 +18,9 @@ public class NotificationResponse {
     private String eventType;
     private String targetUrl;
     private boolean isRead;
+    private Long announcementId;
+    private String priority;
+    private String authorName;
     private LocalDateTime createdAt;
 
     public static NotificationResponse fromEntity(Notification n) {
@@ -28,6 +31,9 @@ public class NotificationResponse {
             .eventType(n.getEventType())
             .targetUrl(n.getTargetUrl())
             .isRead(n.isRead())
+            .announcementId(n.getAnnouncement() != null ? n.getAnnouncement().getId() : null)
+            .priority(n.getPriority())
+            .authorName(n.getAuthorName())
             .createdAt(n.getCreatedAt())
             .build();
     }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
@@ -27,6 +27,8 @@ function DashboardRouter() {
 }
 
 function MainApp() {
+  const { user } = useAuth();
+  const location = useLocation();
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState('login');
   const [authInitialRole, setAuthInitialRole] = useState('FACULTY');
@@ -37,9 +39,11 @@ function MainApp() {
     setAuthModalOpen(true);
   };
 
+  const showNavbar = !user || location.pathname === '/';
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Navbar onOpenAuth={handleOpenAuth} />
+      {showNavbar && <Navbar onOpenAuth={handleOpenAuth} />}
 
       <main style={{ flex: 1 }}>
         <Routes>

@@ -38,6 +38,16 @@ public class Notification {
     @Builder.Default
     private boolean isRead = false;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "announcement_id")
+    private Announcement announcement;
+
+    @Column(length = 20)
+    private String priority;
+
+    @Column
+    private String authorName;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

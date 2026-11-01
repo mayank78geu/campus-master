@@ -160,6 +160,14 @@ public class SubmissionService {
         return mapToResponse(submission);
     }
 
+    @Transactional(readOnly = true)
+    public List<SubmissionResponse> getFacultyPendingSubmissions(User faculty) {
+        return submissionRepository.findByAssignment_Batch_Course_OwnerAndMarksIsNullOrderBySubmittedAtDesc(faculty)
+            .stream()
+            .map(this::mapToResponse)
+            .collect(Collectors.toList());
+    }
+
     private SubmissionResponse mapToResponse(Submission s) {
         return SubmissionResponse.builder()
             .id(s.getId())

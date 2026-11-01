@@ -60,4 +60,12 @@ public class SubmissionController {
         SubmissionResponse response = submissionService.getSubmissionByReceipt(receiptToken);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
+
+    @GetMapping("/faculty/pending-submissions")
+    @PreAuthorize("hasRole('FACULTY')")
+    public ResponseEntity<ApiResponse<List<SubmissionResponse>>> getFacultyPendingSubmissions() {
+        User faculty = authService.getCurrentUser();
+        List<SubmissionResponse> responses = submissionService.getFacultyPendingSubmissions(faculty);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
 }

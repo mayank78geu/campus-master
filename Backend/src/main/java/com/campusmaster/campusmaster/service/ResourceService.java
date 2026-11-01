@@ -244,6 +244,13 @@ public class ResourceService {
             .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<ResourceResponse> getRecentResources() {
+        return resourceRepository.findTop6ByIsPublishedTrueOrderByCreatedAtDesc().stream()
+            .map(ResourceResponse::fromEntity)
+            .collect(Collectors.toList());
+    }
+
     private void validateFacultyOwnership(Course course, User faculty) {
         boolean isOwner = course.getOwner().getId().equals(faculty.getId());
         boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
