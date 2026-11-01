@@ -94,7 +94,7 @@ public class AnalyticsService {
         // Header
         csv.append("Student Name,Email,Enrollment Status");
         for (Assignment a : assignments) {
-            csv.append(",\"").append(a.getTitle().replace("\"", "\"\"")).append(" (Max ").append(a.getMaxMarks()).append(")\"");
+            csv.append(",\"").append(escapeCsv(a.getTitle())).append(" (Max ").append(a.getMaxMarks()).append(")\"");
         }
         csv.append(",Total Marks Obtained,Max Possible Marks\n");
 
@@ -103,8 +103,8 @@ public class AnalyticsService {
         // Rows
         for (Enrollment e : activeEnrollments) {
             User student = e.getStudent();
-            csv.append("\"").append(student.getName().replace("\"", "\"\"")).append("\",");
-            csv.append("\"").append(student.getEmail().replace("\"", "\"\"")).append("\",");
+            csv.append("\"").append(escapeCsv(student.getName())).append("\",");
+            csv.append("\"").append(escapeCsv(student.getEmail())).append("\",");
             csv.append(e.getStatus().name());
 
             double studentTotal = 0;
@@ -144,8 +144,8 @@ public class AnalyticsService {
         for (Enrollment e : enrollments) {
             User s = e.getStudent();
             csv.append(s.getId()).append(",");
-            csv.append("\"").append(s.getName().replace("\"", "\"\"")).append("\",");
-            csv.append("\"").append(s.getEmail().replace("\"", "\"\"")).append("\",");
+            csv.append("\"").append(escapeCsv(s.getName())).append("\",");
+            csv.append("\"").append(escapeCsv(s.getEmail())).append("\",");
             csv.append(s.getRole().name()).append(",");
             csv.append(e.getStatus().name()).append(",");
             csv.append(e.getJoinedAt() != null ? e.getJoinedAt().toString() : "").append("\n");
@@ -156,5 +156,16 @@ public class AnalyticsService {
 
     private void validateFacultyOwnership(Course course, User faculty) {
         courseAccessService.requireFacultyOf(course, faculty);
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        String sanitized = value;
+        if (sanitized.startsWith("=") || sanitized.startsWith("+") || sanitized.startsWith("-") || sanitized.startsWith("@") || sanitized.startsWith("\t") || sanitized.startsWith("\r")) {
+            sanitized = "'" + sanitized;
+        }
+        return sanitized.replace("\"", "\"\"");
     }
 }
