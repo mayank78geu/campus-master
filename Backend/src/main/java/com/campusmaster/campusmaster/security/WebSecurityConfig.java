@@ -62,7 +62,7 @@ public class WebSecurityConfig {
             .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/v1/auth/**", "/error", "/ws/**", "/ws-chat/**").permitAll()
+                .requestMatchers("/api/v1/auth/**", "/error", "/ws/**", "/ws-chat", "/ws-chat/**", "/ws-chat-sockjs", "/ws-chat-sockjs/**").permitAll()
                 .anyRequest().authenticated()
             );
 
