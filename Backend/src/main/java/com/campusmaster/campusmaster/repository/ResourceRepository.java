@@ -28,4 +28,14 @@ public interface ResourceRepository extends JpaRepository<Resource, Long> {
     List<Resource> searchInCourse(@Param("course") Course course, @Param("query") String query);
 
     List<Resource> findTop6ByIsPublishedTrueOrderByCreatedAtDesc();
+
+    boolean existsByUnit(Unit unit);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("UPDATE Resource r SET r.viewCount = r.viewCount + 1 WHERE r.id = :id")
+    void incrementViewCount(@Param("id") Long id);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("UPDATE Resource r SET r.downloadCount = r.downloadCount + 1 WHERE r.id = :id")
+    void incrementDownloadCount(@Param("id") Long id);
 }

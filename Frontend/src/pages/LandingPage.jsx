@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, BookOpen, Layers, Users, Shield, Clock, Search, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, BookOpen, Users, Shield, ChevronDown } from 'lucide-react';
 
 export default function LandingPage({ onOpenAuth }) {
   const [openFaq, setOpenFaq] = useState(null);

@@ -284,12 +284,12 @@ export default function FacultyDashboard() {
 
   const handleDeclineRequest = async (req) => {
     try {
-      await api.patch(`/batches/${req.batchId}/enrollments/${req.id}`, { status: 'REMOVED' });
+      await api.patch(`/batches/${req.batchId}/enrollments/${req.id}`, { status: 'REJECTED' });
       setPendingRequests(prev => prev.filter(r => r.id !== req.id));
-      setMessage(`Declined join request for ${req.name}.`);
+      setMessage(`Rejected join request for ${req.name}.`);
       setTimeout(() => setMessage(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to decline request');
+      setError(err.message || 'Failed to reject request');
     }
   };
 

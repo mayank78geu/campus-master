@@ -9,4 +9,6 @@ import java.util.List;
 public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     List<Assignment> findByBatchIdOrderByDueDateAsc(Long batchId);
     List<Assignment> findByBatchIdInOrderByDueDateAsc(List<Long> batchIds);
+    long countByBatchIdAndDueDateAfter(Long batchId, java.time.LocalDateTime now);
+    long countByBatchId(Long batchId);
 }

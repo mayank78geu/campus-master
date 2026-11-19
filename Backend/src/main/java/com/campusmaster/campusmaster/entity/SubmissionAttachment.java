@@ -25,7 +25,7 @@ public class SubmissionAttachment {
     @Column(nullable = false)
     private String fileName;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 2048)
     private String fileUrl;
 
     private Long fileSize;

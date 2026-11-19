@@ -1,10 +1,13 @@
 package com.campusmaster.campusmaster.service.storage;
 
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
+import com.campusmaster.campusmaster.security.FileSignatureService;
+import com.campusmaster.campusmaster.util.FileUploadValidator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -18,8 +21,10 @@ import java.util.UUID;
 public class LocalStorageService implements StorageService {
 
     private final Path rootLocation = Paths.get("uploads").toAbsolutePath().normalize();
+    private final FileSignatureService fileSignatureService;
 
-    public LocalStorageService() {
+    public LocalStorageService(FileSignatureService fileSignatureService) {
+        this.fileSignatureService = fileSignatureService;
         try {
             Files.createDirectories(this.rootLocation);
         } catch (IOException e) {
@@ -29,20 +34,15 @@ public class LocalStorageService implements StorageService {
 
     @Override
     public String storeFile(MultipartFile file, String subfolder) {
-        if (file.isEmpty()) {
-            throw new IllegalArgumentException("Cannot upload an empty file");
-        }
+        FileUploadValidator.validateSingleFile(file);
 
-        String originalFilename = StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
-        if (originalFilename.contains("..")) {
-            throw new IllegalArgumentException("Filename contains invalid path sequence: " + originalFilename);
-        }
+        String originalFilename = Objects.requireNonNull(file.getOriginalFilename());
+        String sanitizedName = FileUploadValidator.sanitizeFilename(originalFilename);
 
-        // Generate unique filename to avoid collision while retaining original extension
         String extension = "";
-        int i = originalFilename.lastIndexOf('.');
+        int i = sanitizedName.lastIndexOf('.');
         if (i > 0) {
-            extension = originalFilename.substring(i);
+            extension = sanitizedName.substring(i);
         }
 
         String uniqueFileName = UUID.randomUUID().toString() + extension;
@@ -50,11 +50,17 @@ public class LocalStorageService implements StorageService {
         try {
             Path targetDirectory = this.rootLocation;
             if (subfolder != null && !subfolder.trim().isEmpty()) {
-                targetDirectory = this.rootLocation.resolve(subfolder);
+                targetDirectory = this.rootLocation.resolve(subfolder).normalize();
+                if (!targetDirectory.startsWith(this.rootLocation)) {
+                    throw new AccessDeniedException("Invalid target folder traversal attempt");
+                }
                 Files.createDirectories(targetDirectory);
             }
 
-            Path targetLocation = targetDirectory.resolve(uniqueFileName);
+            Path targetLocation = targetDirectory.resolve(uniqueFileName).normalize();
+            if (!targetLocation.startsWith(this.rootLocation)) {
+                throw new AccessDeniedException("Target path outside root location");
+            }
             Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
 
             return (subfolder != null && !subfolder.isEmpty())
@@ -69,14 +75,18 @@ public class LocalStorageService implements StorageService {
     public Resource loadFileAsResource(String fileUrl) {
         try {
             Path filePath = this.rootLocation.resolve(fileUrl).normalize();
+            if (!filePath.startsWith(this.rootLocation)) {
+                throw new AccessDeniedException("Access denied: path traversal attempt");
+            }
+
             Resource resource = new UrlResource(filePath.toUri());
             if (resource.exists() && resource.isReadable()) {
                 return resource;
             } else {
-                throw new IllegalArgumentException("File not found: " + fileUrl);
+                throw new ResourceNotFoundException("File not found: " + fileUrl);
             }
         } catch (MalformedURLException ex) {
-            throw new IllegalArgumentException("File not found: " + fileUrl, ex);
+            throw new ResourceNotFoundException("File not found: " + fileUrl);
         }
     }
 
@@ -84,9 +94,19 @@ public class LocalStorageService implements StorageService {
     public void deleteFile(String fileUrl) {
         try {
             Path filePath = this.rootLocation.resolve(fileUrl).normalize();
-            Files.deleteIfExists(filePath);
+            if (filePath.startsWith(this.rootLocation)) {
+                Files.deleteIfExists(filePath);
+            }
         } catch (IOException e) {
             // Log and ignore
         }
+    }
+
+    @Override
+    public String getDownloadUrl(String storedPath) {
+        if (storedPath == null || storedPath.isBlank()) {
+            return null;
+        }
+        return fileSignatureService.generateSignedUrl(storedPath);
     }
 }

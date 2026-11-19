@@ -4,6 +4,7 @@ import com.campusmaster.campusmaster.dto.batch.BatchResponse;
 import com.campusmaster.campusmaster.dto.batch.CreateBatchRequest;
 import com.campusmaster.campusmaster.dto.batch.EnrollmentResponse;
 import com.campusmaster.campusmaster.dto.batch.JoinBatchRequest;
+import com.campusmaster.campusmaster.dto.batch.UpdateEnrollmentStatusRequest;
 import com.campusmaster.campusmaster.dto.common.ApiResponse;
 import com.campusmaster.campusmaster.entity.EnrollmentStatus;
 import com.campusmaster.campusmaster.entity.User;
@@ -69,15 +70,10 @@ public class BatchController {
     public ResponseEntity<ApiResponse<EnrollmentResponse>> updateEnrollmentStatus(
             @PathVariable Long id,
             @PathVariable Long enrollmentId,
-            @RequestBody Map<String, String> payload) {
-        String statusStr = payload.get("status");
-        if (statusStr == null) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Status is required (ACTIVE, PENDING, REMOVED)"));
-        }
-        EnrollmentStatus status = EnrollmentStatus.valueOf(statusStr.toUpperCase());
+            @Valid @RequestBody UpdateEnrollmentStatusRequest request) {
         User currentUser = authService.getCurrentUser();
-        EnrollmentResponse response = batchService.updateEnrollmentStatus(id, enrollmentId, status, currentUser);
-        return ResponseEntity.ok(ApiResponse.ok(response, "Enrollment status updated to " + status));
+        EnrollmentResponse response = batchService.updateEnrollmentStatus(id, enrollmentId, request.getStatus(), currentUser);
+        return ResponseEntity.ok(ApiResponse.ok(response, "Enrollment status updated to " + request.getStatus()));
     }
 
     @PatchMapping("/batches/{id}/toggle-status")

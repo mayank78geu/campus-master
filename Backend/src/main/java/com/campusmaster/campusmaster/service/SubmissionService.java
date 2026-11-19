@@ -10,12 +10,15 @@ import com.campusmaster.campusmaster.repository.EnrollmentRepository;
 import com.campusmaster.campusmaster.repository.SubmissionRepository;
 import com.campusmaster.campusmaster.service.storage.StorageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,6 +33,15 @@ public class SubmissionService {
     private final EnrollmentRepository enrollmentRepository;
     private final StorageService storageService;
     private final NotificationService notificationService;
+    private final CourseAccessService courseAccessService;
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private String generateReceiptToken(Long assignmentId) {
+        byte[] randomBytes = new byte[16];
+        SECURE_RANDOM.nextBytes(randomBytes);
+        return "RCP-" + assignmentId + "-" + HexFormat.of().formatHex(randomBytes).toUpperCase();
+    }
 
     @Transactional
     public SubmissionResponse submitAssignment(Long assignmentId, String textContent, List<MultipartFile> files, User student) {
@@ -65,7 +77,13 @@ public class SubmissionService {
             if (textContent != null) {
                 submission.setTextContent(textContent);
             }
-            submission.setReceiptToken("RCP-" + String.format("%04d", assignment.getId()) + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+            // Per D3: Keep the same receipt token per assignment+student
+            // Reset marks, feedback, marksPublished flag
+            submission.setMarks(null);
+            submission.setFeedback(null);
+            submission.setMarksPublished(false);
+            // Replace previous attachments
+            submission.getAttachments().clear();
         } else {
             submission = Submission.builder()
                 .assignment(assignment)
@@ -73,7 +91,7 @@ public class SubmissionService {
                 .submittedAt(now)
                 .isLate(isLate)
                 .textContent(textContent)
-                .receiptToken("RCP-" + String.format("%04d", assignment.getId()) + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
+                .receiptToken(generateReceiptToken(assignment.getId()))
                 .version(1)
                 .marksPublished(false)
                 .build();
@@ -96,15 +114,29 @@ public class SubmissionService {
 
         submission = submissionRepository.save(submission);
 
-        // Notify faculty owner and co-faculty
+        // Notify faculty owner and co-faculty (FUN-17)
         Course course = batch.getCourse();
+        String notifMsg = student.getName() + " submitted assignment '" + assignment.getTitle() + "' (" + batch.getName() + ")" + (isLate ? " [LATE]" : "") + ". Receipt: " + submission.getReceiptToken();
+        String targetUrl = "/courses/" + course.getId() + "?batch=" + batch.getId() + "&tab=assignments";
+
         notificationService.notifyUser(
             course.getOwner(),
             "New Submission: " + assignment.getTitle(),
-            student.getName() + " submitted assignment '" + assignment.getTitle() + "' (" + batch.getName() + ")" + (isLate ? " [LATE]" : "") + ". Receipt: " + submission.getReceiptToken(),
+            notifMsg,
             "SUBMISSION_RECEIVED",
-            "/course/" + course.getId() + "/batch/" + batch.getId()
+            targetUrl
         );
+        if (course.getCoFaculty() != null) {
+            for (User coFaculty : course.getCoFaculty()) {
+                notificationService.notifyUser(
+                    coFaculty,
+                    "New Submission: " + assignment.getTitle(),
+                    notifMsg,
+                    "SUBMISSION_RECEIVED",
+                    targetUrl
+                );
+            }
+        }
 
         return mapToResponse(submission);
     }
@@ -115,16 +147,11 @@ public class SubmissionService {
             .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
 
         Course course = assignment.getBatch().getCourse();
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("Only course faculty can view all submissions");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
 
         List<Submission> submissions = submissionRepository.findByAssignmentId(assignmentId);
         return submissions.stream()
-            .map(this::mapToResponse)
+            .map(s -> mapToResponse(s, faculty))
             .collect(Collectors.toList());
     }
 
@@ -135,40 +162,61 @@ public class SubmissionService {
 
         Assignment assignment = submission.getAssignment();
         Course course = assignment.getBatch().getCourse();
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("Only course faculty can grade submissions");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
 
         if (request.getMarks() < 0 || request.getMarks() > assignment.getMaxMarks()) {
             throw new BadRequestException("Marks must be between 0 and " + assignment.getMaxMarks());
+        }
+
+        if (submission.isMarksPublished() && !Boolean.TRUE.equals(request.getRegrade())) {
+            throw new BadRequestException("Submission has already been published. Set regrade=true to re-grade.");
         }
 
         submission.setMarks(request.getMarks());
         submission.setFeedback(request.getFeedback());
         submission = submissionRepository.save(submission);
 
-        return mapToResponse(submission);
+        if (submission.isMarksPublished() && Boolean.TRUE.equals(request.getRegrade())) {
+            notificationService.notifyUser(
+                submission.getStudent(),
+                "Grades Updated: " + assignment.getTitle(),
+                "Your marks and feedback for assignment '" + assignment.getTitle() + "' have been updated. Score: " + submission.getMarks() + "/" + assignment.getMaxMarks(),
+                "GRADES_PUBLISHED",
+                "/courses/" + course.getId() + "?batch=" + assignment.getBatch().getId() + "&tab=assignments"
+            );
+        }
+
+        return mapToResponse(submission, faculty);
     }
 
     @Transactional(readOnly = true)
-    public SubmissionResponse getSubmissionByReceipt(String receiptToken) {
+    public SubmissionResponse getSubmissionByReceipt(String receiptToken, User user) {
         Submission submission = submissionRepository.findByReceiptToken(receiptToken)
             .orElseThrow(() -> new ResourceNotFoundException("Submission receipt not found"));
-        return mapToResponse(submission);
+
+        Course course = submission.getAssignment().getBatch().getCourse();
+        boolean isFaculty = courseAccessService.isFacultyOf(course, user);
+        boolean isSubmittingStudent = user != null && user.getId().equals(submission.getStudent().getId());
+
+        if (!isFaculty && !isSubmittingStudent) {
+            throw new AccessDeniedException("Access denied: You are not authorized to view this receipt");
+        }
+
+        return mapToResponse(submission, user);
     }
 
     @Transactional(readOnly = true)
     public List<SubmissionResponse> getFacultyPendingSubmissions(User faculty) {
         return submissionRepository.findByAssignment_Batch_Course_OwnerAndMarksIsNullOrderBySubmittedAtDesc(faculty)
             .stream()
-            .map(this::mapToResponse)
+            .map(s -> mapToResponse(s, faculty))
             .collect(Collectors.toList());
     }
 
-    private SubmissionResponse mapToResponse(Submission s) {
+    private SubmissionResponse mapToResponse(Submission s, User viewer) {
+        boolean isFaculty = viewer != null && courseAccessService.isFacultyOf(s.getAssignment().getBatch().getCourse(), viewer);
+        boolean canSeeMarks = isFaculty || s.isMarksPublished();
+
         return SubmissionResponse.builder()
             .id(s.getId())
             .assignmentId(s.getAssignment().getId())
@@ -179,18 +227,22 @@ public class SubmissionService {
             .isLate(s.isLate())
             .textContent(s.getTextContent())
             .receiptToken(s.getReceiptToken())
-            .marks(s.getMarks())
-            .feedback(s.getFeedback())
+            .marks(canSeeMarks ? s.getMarks() : null)
+            .feedback(canSeeMarks ? s.getFeedback() : null)
             .marksPublished(s.isMarksPublished())
             .version(s.getVersion())
             .attachments(s.getAttachments().stream().map(att ->
                 SubmissionResponse.AttachmentDto.builder()
                     .id(att.getId())
                     .fileName(att.getFileName())
-                    .fileUrl(att.getFileUrl())
+                    .fileUrl(storageService.getDownloadUrl(att.getFileUrl()))
                     .fileSize(att.getFileSize())
                     .build()
             ).collect(Collectors.toList()))
             .build();
+    }
+
+    private SubmissionResponse mapToResponse(Submission s) {
+        return mapToResponse(s, null);
     }
 }

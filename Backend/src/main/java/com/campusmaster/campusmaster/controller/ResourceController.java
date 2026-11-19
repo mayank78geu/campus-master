@@ -92,13 +92,15 @@ public class ResourceController {
 
     @PostMapping("/resources/{id}/view")
     public ResponseEntity<ApiResponse<Void>> recordView(@PathVariable Long id) {
-        resourceService.recordView(id);
+        User user = authService.getCurrentUser();
+        resourceService.recordView(id, user);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @PostMapping("/resources/{id}/download")
     public ResponseEntity<ApiResponse<Void>> recordDownload(@PathVariable Long id) {
-        resourceService.recordDownload(id);
+        User user = authService.getCurrentUser();
+        resourceService.recordDownload(id, user);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 

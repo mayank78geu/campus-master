@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import api from '../services/api';
+import api, { API_ORIGIN } from '../services/api';
+import { fileHref } from '../services/files';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import AssignmentsDesk from '../components/AssignmentsDesk';
+import BatchChatWindow from '../components/BatchChatWindow';
 import { 
   ArrowLeft, BookOpen, Layers, Users, Copy, Check, Plus, RefreshCw, 
   FileText, Link as LinkIcon, Download, Eye, History, Search, ExternalLink,
@@ -222,11 +224,11 @@ export default function CourseSpacePage() {
 
   const handleDeclineRequest = async (req) => {
     try {
-      await api.patch(`/batches/${req.batchId}/enrollments/${req.id}`, { status: 'REMOVED' });
+      await api.patch(`/batches/${req.batchId}/enrollments/${req.id}`, { status: 'REJECTED' });
       setPendingRequests(prev => prev.filter(r => r.id !== req.id));
-      showToast(`Enrollment request declined for ${req.name || 'Student'}.`);
+      showToast(`Enrollment request rejected for ${req.name || 'Student'}.`);
     } catch (err) {
-      alert(err.message || 'Failed to decline enrollment request');
+      alert(err.message || 'Failed to reject enrollment request');
     }
   };
 
@@ -247,7 +249,7 @@ export default function CourseSpacePage() {
         formData.append('file', resFile);
 
         const token = localStorage.getItem('cm_token');
-        const res = await fetch(`http://localhost:8081/api/v1/courses/${id}/resources/upload`, {
+        const res = await fetch(`${API_ORIGIN}/api/v1/courses/${id}/resources/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -297,11 +299,7 @@ export default function CourseSpacePage() {
       await api.post(`/resources/${resItem.id}/download`);
       setResources(prev => prev.map(r => r.id === resItem.id ? { ...r, downloadCount: (r.downloadCount || 0) + 1 } : r));
     } catch (e) {}
-    if (resItem.fileUrl?.startsWith('http://') || resItem.fileUrl?.startsWith('https://')) {
-      window.open(resItem.fileUrl, '_blank');
-    } else {
-      window.open(`http://localhost:8081/api/v1/files/${resItem.fileUrl}`, '_blank');
-    }
+    window.open(fileHref(resItem.fileUrl), '_blank');
   };
 
   // Color helper for resource format badges matching Image 3
@@ -476,6 +474,36 @@ export default function CourseSpacePage() {
               >
                 Assignments Desk
               </button>
+              <button
+                onClick={() => setActiveTab('chat')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: activeTab === 'chat' ? 700 : 500,
+                  backgroundColor: activeTab === 'chat' ? '#FFFFFF' : 'transparent',
+                  color: activeTab === 'chat' ? '#0B132B' : '#64748B',
+                  boxShadow: activeTab === 'chat' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>Batch Chat</span>
+                <span style={{
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  backgroundColor: '#0D9488',
+                  color: '#FFFFFF',
+                  letterSpacing: '0.04em',
+                }}>
+                  LIVE
+                </span>
+              </button>
             </div>
 
             {isFaculty && (
@@ -527,14 +555,24 @@ export default function CourseSpacePage() {
           </div>
         </div>
 
-        {/* View Mode: If Active Tab is Assignments, render the Assignments Desk matching Image 2! */}
+        {/* View Mode: Assignments Desk or Live Batch Chat or Materials Space */}
         {activeTab === 'assignments' ? (
           <AssignmentsDesk 
             courseId={id} 
             batches={batches} 
             isFaculty={isFaculty} 
             user={user} 
-            courseCode={course.code || 'DBMS'} 
+            courseCode={course?.code || 'DBMS'} 
+          />
+        ) : activeTab === 'chat' ? (
+          <BatchChatWindow
+            courseId={id}
+            batches={batches}
+            selectedBatch={selectedBatch}
+            onSelectBatch={setSelectedBatch}
+            isFaculty={isFaculty}
+            user={user}
+            courseCode={course?.code || 'COURSE'}
           />
         ) : (
           /* View Mode: Materials Space matching Image 3! */
@@ -595,31 +633,24 @@ export default function CourseSpacePage() {
                           </span>
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
-                          {b.enrolledCount || (idx === 0 ? 48 : 44)} students · {isActiveBatch ? '2 assignments open' : 'read-only'}
+                          {b.enrolledStudentsCount ?? b.enrolledCount ?? 0} students · {isActiveBatch ? `${b.activeAssignmentsCount ?? 0} assignments open` : 'read-only'}
                         </div>
                       </div>
                     );
                   })
                 ) : (
-                  // Fallback active batch card
                   <div style={{
                     minWidth: '220px',
                     borderRadius: '12px',
                     padding: '0.85rem 1.15rem',
-                    border: '2px solid #0D9488',
-                    backgroundColor: '#FFFFFF',
+                    border: '1px dashed #CBD5E1',
+                    backgroundColor: '#F8FAFC',
+                    color: '#64748B',
+                    fontSize: '0.85rem',
+                    display: 'flex',
+                    alignItems: 'center',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                      <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0F172A' }}>
-                        Sem 3 · 2026–27
-                      </span>
-                      <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '4px', backgroundColor: '#D1FAE5', color: '#065F46' }}>
-                        Active
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
-                      48 students · 2 assignments open
-                    </div>
+                    No batches created yet
                   </div>
                 )}
 
@@ -665,7 +696,7 @@ export default function CourseSpacePage() {
                   <path d="M3 17L12 22L21 17" stroke="#0D9488" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <span style={{ fontSize: '0.84rem', color: '#0F766E', fontWeight: 500 }}>
-                  <strong>One shared course space.</strong> The {resources.length > 0 ? resources.length : 38} resources below were uploaded once and are open to every batch above, including batches that join later.
+                  <strong>One shared course space.</strong> The {resources.length} {resources.length === 1 ? 'resource' : 'resources'} below were uploaded once and are open to every batch above, including batches that join later.
                 </span>
               </div>
             </div>

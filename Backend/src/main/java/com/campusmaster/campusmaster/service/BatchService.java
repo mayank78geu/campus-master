@@ -4,15 +4,21 @@ import com.campusmaster.campusmaster.dto.batch.BatchResponse;
 import com.campusmaster.campusmaster.dto.batch.CreateBatchRequest;
 import com.campusmaster.campusmaster.dto.batch.EnrollmentResponse;
 import com.campusmaster.campusmaster.entity.*;
+import com.campusmaster.campusmaster.exception.BadRequestException;
+import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.BatchRepository;
 import com.campusmaster.campusmaster.repository.CourseRepository;
 import com.campusmaster.campusmaster.repository.EnrollmentRepository;
+import com.campusmaster.campusmaster.repository.AssignmentRepository;
+import com.campusmaster.campusmaster.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -23,7 +29,9 @@ public class BatchService {
     private final BatchRepository batchRepository;
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
-    private final com.campusmaster.campusmaster.repository.UserRepository userRepository;
+    private final AssignmentRepository assignmentRepository;
+    private final UserRepository userRepository;
+    private final CourseAccessService courseAccessService;
 
     private static final String CHARACTERS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // Removed ambiguous chars 0, 1, I, O
     private static final int CODE_LENGTH = 6;
@@ -40,7 +48,7 @@ public class BatchService {
             code = sb.toString();
             attempts++;
             if (attempts > 50) {
-                code = code + System.currentTimeMillis() % 1000;
+                code = code + (System.currentTimeMillis() % 1000);
                 break;
             }
         } while (batchRepository.existsByJoinCode(code));
@@ -50,12 +58,12 @@ public class BatchService {
     @Transactional
     public BatchResponse createBatch(Long courseId, CreateBatchRequest request, User faculty) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
         validateFacultyOwnership(course, faculty);
 
         if (course.isArchived()) {
-            throw new IllegalStateException("Cannot create a batch in an archived course");
+            throw new BadRequestException("Cannot create a batch in an archived course");
         }
 
         Batch batch = Batch.builder()
@@ -76,17 +84,29 @@ public class BatchService {
     @Transactional(readOnly = true)
     public List<BatchResponse> getBatchesByCourse(Long courseId, User user) {
         Course course = courseRepository.findById(courseId)
-            .orElseThrow(() -> new IllegalArgumentException("Course not found with id: " + courseId));
+            .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
+        courseAccessService.requireMemberOf(course, user);
+        boolean isFaculty = courseAccessService.isFacultyOf(course, user);
+
+        LocalDateTime now = LocalDateTime.now();
         return batchRepository.findByCourseOrderByCreatedAtDesc(course).stream()
-            .map(BatchResponse::fromEntity)
+            .map(b -> {
+                int activeStudents = (int) enrollmentRepository.countByBatchAndStatus(b, EnrollmentStatus.ACTIVE);
+                int activeAssignments = (int) assignmentRepository.countByBatchIdAndDueDateAfter(b.getId(), now);
+                BatchResponse res = BatchResponse.fromEntity(b, activeStudents, activeAssignments);
+                if (!isFaculty) {
+                    res.setJoinCode(null);
+                }
+                return res;
+            })
             .collect(Collectors.toList());
     }
 
     @Transactional
     public BatchResponse regenerateJoinCode(Long batchId, User faculty) {
         Batch batch = batchRepository.findById(batchId)
-            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+            .orElseThrow(() -> new ResourceNotFoundException("Batch not found with id: " + batchId));
 
         validateFacultyOwnership(batch.getCourse(), faculty);
         batch.setJoinCode(generateUniqueJoinCode());
@@ -101,10 +121,10 @@ public class BatchService {
 
         String normalizedCode = joinCode.trim().toUpperCase();
         Batch batch = batchRepository.findByJoinCode(normalizedCode)
-            .orElseThrow(() -> new IllegalArgumentException("Invalid join code: " + joinCode));
+            .orElseThrow(() -> new ResourceNotFoundException("Invalid join code: " + joinCode));
 
         if (batch.getStatus() == BatchStatus.CLOSED || batch.getCourse().isArchived()) {
-            throw new IllegalStateException("This batch is closed or its course has been archived");
+            throw new BadRequestException("This batch is closed or its course has been archived");
         }
 
         // Check if student is already enrolled in this batch
@@ -115,7 +135,10 @@ public class BatchService {
                 return EnrollmentResponse.fromEntity(enrollment);
             }
             if (enrollment.getStatus() == EnrollmentStatus.PENDING) {
-                throw new IllegalStateException("Your join request is pending approval by faculty");
+                throw new BadRequestException("Your join request is pending approval by faculty");
+            }
+            if (enrollment.getStatus() == EnrollmentStatus.REJECTED) {
+                throw new AccessDeniedException("Your enrollment was rejected. You cannot rejoin this batch.");
             }
             // If previously removed, re-enroll
             enrollment.setStatus(batch.getJoinMode() == JoinMode.AUTO_APPROVE ? 
@@ -140,7 +163,7 @@ public class BatchService {
     @Transactional(readOnly = true)
     public List<EnrollmentResponse> getBatchRoster(Long batchId, User faculty) {
         Batch batch = batchRepository.findById(batchId)
-            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+            .orElseThrow(() -> new ResourceNotFoundException("Batch not found with id: " + batchId));
 
         validateFacultyOwnership(batch.getCourse(), faculty);
 
@@ -152,15 +175,28 @@ public class BatchService {
     @Transactional
     public EnrollmentResponse updateEnrollmentStatus(Long batchId, Long enrollmentId, EnrollmentStatus status, User faculty) {
         Batch batch = batchRepository.findById(batchId)
-            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+            .orElseThrow(() -> new ResourceNotFoundException("Batch not found with id: " + batchId));
 
         validateFacultyOwnership(batch.getCourse(), faculty);
 
         Enrollment enrollment = enrollmentRepository.findById(enrollmentId)
-            .orElseThrow(() -> new IllegalArgumentException("Enrollment not found with id: " + enrollmentId));
+            .orElseThrow(() -> new ResourceNotFoundException("Enrollment not found with id: " + enrollmentId));
 
         if (!enrollment.getBatch().getId().equals(batchId)) {
-            throw new IllegalArgumentException("Enrollment does not belong to this batch");
+            throw new BadRequestException("Enrollment does not belong to this batch");
+        }
+
+        EnrollmentStatus currentStatus = enrollment.getStatus();
+        if (currentStatus != status) {
+            boolean validTransition = switch (currentStatus) {
+                case PENDING -> (status == EnrollmentStatus.ACTIVE || status == EnrollmentStatus.REJECTED);
+                case ACTIVE -> (status == EnrollmentStatus.REMOVED);
+                case REJECTED -> (status == EnrollmentStatus.ACTIVE || status == EnrollmentStatus.PENDING);
+                case REMOVED -> (status == EnrollmentStatus.ACTIVE || status == EnrollmentStatus.PENDING);
+            };
+            if (!validTransition) {
+                throw new BadRequestException("Invalid status transition from " + currentStatus + " to " + status);
+            }
         }
 
         enrollment.setStatus(status);
@@ -170,7 +206,7 @@ public class BatchService {
     @Transactional
     public BatchResponse toggleBatchStatus(Long batchId, User faculty) {
         Batch batch = batchRepository.findById(batchId)
-            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+            .orElseThrow(() -> new ResourceNotFoundException("Batch not found with id: " + batchId));
         validateFacultyOwnership(batch.getCourse(), faculty);
         batch.setStatus(batch.getStatus() == BatchStatus.ACTIVE ? BatchStatus.CLOSED : BatchStatus.ACTIVE);
         return BatchResponse.fromEntity(batch);
@@ -179,10 +215,10 @@ public class BatchService {
     @Transactional
     public List<EnrollmentResponse> addStudentsByEmail(Long batchId, List<String> emails, User faculty) {
         Batch batch = batchRepository.findById(batchId)
-            .orElseThrow(() -> new IllegalArgumentException("Batch not found with id: " + batchId));
+            .orElseThrow(() -> new ResourceNotFoundException("Batch not found with id: " + batchId));
         validateFacultyOwnership(batch.getCourse(), faculty);
 
-        java.util.List<EnrollmentResponse> responses = new java.util.ArrayList<>();
+        List<EnrollmentResponse> responses = new ArrayList<>();
         for (String email : emails) {
             String trimmed = email.trim().toLowerCase();
             if (trimmed.isEmpty()) continue;
@@ -208,10 +244,6 @@ public class BatchService {
     }
 
     private void validateFacultyOwnership(Course course, User faculty) {
-        boolean isOwner = course.getOwner().getId().equals(faculty.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(faculty.getId()));
-        if (!isOwner && !isCoFaculty) {
-            throw new AccessDeniedException("You do not have permission to manage batches for this course");
-        }
+        courseAccessService.requireFacultyOf(course, faculty);
     }
 }

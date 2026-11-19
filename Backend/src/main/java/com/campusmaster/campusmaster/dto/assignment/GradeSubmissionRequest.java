@@ -10,4 +10,6 @@ public class GradeSubmissionRequest {
     private Double marks;
 
     private String feedback;
+
+    private Boolean regrade;
 }

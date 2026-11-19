@@ -13,8 +13,11 @@ import java.util.Optional;
 public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
     Optional<Enrollment> findByStudentAndBatch(User student, Batch batch);
     boolean existsByStudentAndBatch(User student, Batch batch);
+    boolean existsByStudentAndBatchAndStatus(User student, Batch batch, EnrollmentStatus status);
+    boolean existsByStudentAndBatch_CourseAndStatus(User student, com.campusmaster.campusmaster.entity.Course course, EnrollmentStatus status);
     List<Enrollment> findByBatchOrderByJoinedAtDesc(Batch batch);
     List<Enrollment> findByBatchAndStatusOrderByJoinedAtDesc(Batch batch, EnrollmentStatus status);
     List<Enrollment> findByStudentAndStatusOrderByJoinedAtDesc(User student, EnrollmentStatus status);
     List<Enrollment> findByBatch_Course_OwnerAndStatusOrderByJoinedAtDesc(User owner, EnrollmentStatus status);
+    long countByBatchAndStatus(Batch batch, EnrollmentStatus status);
 }

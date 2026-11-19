@@ -9,6 +9,7 @@ import com.campusmaster.campusmaster.entity.*;
 import com.campusmaster.campusmaster.exception.BadRequestException;
 import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
 import com.campusmaster.campusmaster.repository.*;
+import com.campusmaster.campusmaster.service.storage.StorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,8 @@ public class AssignmentService {
     private final BatchRepository batchRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final NotificationService notificationService;
+    private final CourseAccessService courseAccessService;
+    private final StorageService storageService;
 
     @Transactional
     public AssignmentResponse createAssignment(Long batchId, CreateAssignmentRequest request, User user) {
@@ -35,12 +38,7 @@ public class AssignmentService {
             .orElseThrow(() -> new ResourceNotFoundException("Batch not found"));
 
         Course course = batch.getCourse();
-        boolean isOwner = course.getOwner().getId().equals(user.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(user.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("Only course faculty can create assignments");
-        }
+        courseAccessService.requireFacultyOf(course, user);
 
         Assignment assignment = Assignment.builder()
             .batch(batch)
@@ -72,7 +70,7 @@ public class AssignmentService {
             "New Assignment: " + assignment.getTitle(),
             "Assignment '" + assignment.getTitle() + "' was assigned in " + course.getName() + " (" + batch.getName() + "). Due: " + assignment.getDueDate().toLocalDate(),
             "ASSIGNMENT_CREATED",
-            "/course/" + course.getId() + "/batch/" + batch.getId()
+            "/courses/" + course.getId() + "?batch=" + batch.getId() + "&tab=assignments"
         );
 
         return mapToResponse(assignment, user);
@@ -82,6 +80,7 @@ public class AssignmentService {
     public List<AssignmentResponse> getBatchAssignments(Long batchId, User user) {
         Batch batch = batchRepository.findById(batchId)
             .orElseThrow(() -> new ResourceNotFoundException("Batch not found"));
+        courseAccessService.requireMemberOfBatch(batch, user);
 
         List<Assignment> assignments = assignmentRepository.findByBatchIdOrderByDueDateAsc(batchId);
         return assignments.stream()
@@ -93,6 +92,7 @@ public class AssignmentService {
     public AssignmentResponse getAssignmentById(Long id, User user) {
         Assignment assignment = assignmentRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
+        courseAccessService.requireMemberOfBatch(assignment.getBatch(), user);
         return mapToResponse(assignment, user);
     }
 
@@ -104,14 +104,11 @@ public class AssignmentService {
         Batch targetBatch = batchRepository.findById(request.getTargetBatchId())
             .orElseThrow(() -> new ResourceNotFoundException("Target batch not found"));
 
+        // SEC-07: Require faculty authorization on both source course and target course
+        courseAccessService.requireFacultyOf(source.getBatch().getCourse(), user);
+        courseAccessService.requireFacultyOf(targetBatch.getCourse(), user);
+
         Course course = targetBatch.getCourse();
-        boolean isOwner = course.getOwner().getId().equals(user.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(user.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("You do not have permission to create assignments in the target batch");
-        }
-
         Assignment cloned = Assignment.builder()
             .batch(targetBatch)
             .title(source.getTitle())
@@ -139,7 +136,7 @@ public class AssignmentService {
             "New Assignment: " + cloned.getTitle(),
             "Assignment '" + cloned.getTitle() + "' was assigned in " + course.getName() + " (" + targetBatch.getName() + "). Due: " + cloned.getDueDate().toLocalDate(),
             "ASSIGNMENT_CREATED",
-            "/course/" + course.getId() + "/batch/" + targetBatch.getId()
+            "/courses/" + course.getId() + "?batch=" + targetBatch.getId() + "&tab=assignments"
         );
 
         return mapToResponse(cloned, user);
@@ -151,16 +148,11 @@ public class AssignmentService {
             .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
 
         Course course = assignment.getBatch().getCourse();
-        boolean isOwner = course.getOwner().getId().equals(user.getId());
-        boolean isCoFaculty = course.getCoFaculty().stream().anyMatch(f -> f.getId().equals(user.getId()));
-
-        if (!isOwner && !isCoFaculty) {
-            throw new BadRequestException("Only course faculty can publish grades");
-        }
+        courseAccessService.requireFacultyOf(course, user);
 
         List<Submission> submissions = submissionRepository.findByAssignmentId(assignmentId);
         for (Submission s : submissions) {
-            if (!s.isMarksPublished()) {
+            if (!s.isMarksPublished() && s.getMarks() != null) {
                 s.setMarksPublished(true);
                 submissionRepository.save(s);
 
@@ -168,9 +160,9 @@ public class AssignmentService {
                 notificationService.notifyUser(
                     s.getStudent(),
                     "Grades Published: " + assignment.getTitle(),
-                    "Your marks and feedback for assignment '" + assignment.getTitle() + "' are now available. Score: " + (s.getMarks() != null ? s.getMarks() + "/" + assignment.getMaxMarks() : "Evaluated"),
+                    "Your marks and feedback for assignment '" + assignment.getTitle() + "' are now available. Score: " + s.getMarks() + "/" + assignment.getMaxMarks(),
                     "GRADES_PUBLISHED",
-                    "/course/" + course.getId() + "/batch/" + assignment.getBatch().getId()
+                    "/courses/" + course.getId() + "?batch=" + assignment.getBatch().getId() + "&tab=assignments"
                 );
             }
         }
@@ -250,7 +242,7 @@ public class AssignmentService {
                         SubmissionResponse.AttachmentDto.builder()
                             .id(att.getId())
                             .fileName(att.getFileName())
-                            .fileUrl(att.getFileUrl())
+                            .fileUrl(storageService.getDownloadUrl(att.getFileUrl()))
                             .fileSize(att.getFileSize())
                             .build()
                     ).collect(Collectors.toList()))
@@ -279,7 +271,7 @@ public class AssignmentService {
                 AssignmentResponse.AttachmentDto.builder()
                     .id(att.getId())
                     .fileName(att.getFileName())
-                    .fileUrl(att.getFileUrl())
+                    .fileUrl(storageService.getDownloadUrl(att.getFileUrl()))
                     .fileSize(att.getFileSize())
                     .build()
             ).collect(Collectors.toList()))
