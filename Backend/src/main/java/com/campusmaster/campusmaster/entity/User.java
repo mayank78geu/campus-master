@@ -38,6 +38,25 @@ public class User {
 
     private String verificationToken;
 
+    @Column(name = "student_id", length = 100)
+    private String studentId;
+
+    @Column(length = 255)
+    private String course;
+
+    @Column(length = 50)
+    private String section;
+
+    @Column(name = "class_roll_no", length = 50)
+    private String classRollNo;
+
+    @Column(name = "phone_number", length = 30)
+    private String phoneNumber;
+
+    @Column(name = "is_profile_completed", nullable = false)
+    @Builder.Default
+    private boolean isProfileCompleted = false;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

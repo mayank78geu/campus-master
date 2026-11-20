@@ -4,6 +4,7 @@ import com.campusmaster.campusmaster.dto.auth.AuthResponse;
 import com.campusmaster.campusmaster.dto.auth.LoginRequest;
 import com.campusmaster.campusmaster.dto.auth.RegisterRequest;
 import com.campusmaster.campusmaster.dto.auth.UserResponse;
+import com.campusmaster.campusmaster.entity.Role;
 import com.campusmaster.campusmaster.entity.User;
 import com.campusmaster.campusmaster.exception.BadRequestException;
 import com.campusmaster.campusmaster.exception.ResourceNotFoundException;
@@ -42,6 +43,7 @@ public class AuthService {
             .password(passwordEncoder.encode(request.getPassword()))
             .role(request.getRole())
             .isVerified(true) // Open sign-up per PRD AUTH-3
+            .isProfileCompleted(request.getRole() == Role.FACULTY)
             .build();
 
         user = userRepository.save(user);
@@ -55,6 +57,12 @@ public class AuthService {
             .name(user.getName())
             .email(user.getEmail())
             .role(user.getRole())
+            .studentId(user.getStudentId())
+            .course(user.getCourse())
+            .section(user.getSection())
+            .classRollNo(user.getClassRollNo())
+            .phoneNumber(user.getPhoneNumber())
+            .isProfileCompleted(user.getRole() == Role.FACULTY || user.isProfileCompleted())
             .build();
     }
 
@@ -70,12 +78,21 @@ public class AuthService {
         UserDetailsImpl userPrincipal = (UserDetailsImpl) authentication.getPrincipal();
         String jwt = jwtUtils.generateToken(userPrincipal);
 
+        User user = userRepository.findById(userPrincipal.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userPrincipal.getId()));
+
         return AuthResponse.builder()
             .token(jwt)
-            .id(userPrincipal.getId())
-            .name(userPrincipal.getName())
-            .email(userPrincipal.getEmail())
-            .role(userPrincipal.getRole())
+            .id(user.getId())
+            .name(user.getName())
+            .email(user.getEmail())
+            .role(user.getRole())
+            .studentId(user.getStudentId())
+            .course(user.getCourse())
+            .section(user.getSection())
+            .classRollNo(user.getClassRollNo())
+            .phoneNumber(user.getPhoneNumber())
+            .isProfileCompleted(user.getRole() == Role.FACULTY || user.isProfileCompleted())
             .build();
     }
 

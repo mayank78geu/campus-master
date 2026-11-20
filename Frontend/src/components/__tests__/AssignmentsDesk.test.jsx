@@ -148,4 +148,97 @@ describe('AssignmentsDesk Component', () => {
     expect(screen.getByText('Write BCNF normalization proofs')).toBeInTheDocument();
     expect(screen.getByText('Submit Assignment')).toBeInTheDocument();
   });
+
+  it('renders student view with rejection warning and resubmit option when submission was rejected', async () => {
+    const mockAssignments = [
+      {
+        id: 60,
+        title: 'Normalization Lab 3',
+        instructions: 'Decompose relations into 3NF',
+        dueDate: '2026-11-20T23:59:00',
+        maxMarks: 20,
+        latePolicy: 'ACCEPT_MARK_LATE',
+        mySubmission: {
+          id: 101,
+          version: 1,
+          status: 'REJECTED',
+          rejectionReason: 'Missing functional dependency analysis for table 2',
+          submittedAt: '2026-11-19T10:00:00',
+          receiptToken: 'RCPT-1234',
+        }
+      }
+    ];
+
+    api.get.mockImplementation((url) => {
+      if (url.includes('/assignments')) {
+        return Promise.resolve({ data: mockAssignments });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await act(async () => {
+      render(
+        <AssignmentsDesk
+          courseId={1}
+          batches={mockBatches}
+          isFaculty={false}
+          user={{ id: 100, role: 'STUDENT', name: 'Student One' }}
+          courseCode="CS301"
+        />
+      );
+    });
+
+    expect(screen.getByText('Submission Rejected — Resubmission Required')).toBeInTheDocument();
+    expect(screen.getByText(/Missing functional dependency analysis for table 2/)).toBeInTheDocument();
+    expect(screen.getByText('Resubmit Assignment')).toBeInTheDocument();
+  });
+
+  it('allows faculty to see Reject Submission option and opens rejection modal', async () => {
+    const mockAssignments = [
+      {
+        id: 70,
+        title: 'Query Optimization Lab',
+        instructions: 'Run query plans',
+        dueDate: '2026-11-20T23:59:00',
+        maxMarks: 20,
+        latePolicy: 'ACCEPT_MARK_LATE',
+      }
+    ];
+
+    const mockSubmissions = [
+      {
+        id: 201,
+        studentId: 10,
+        studentName: 'Alice Johnson',
+        status: 'SUBMITTED',
+        isLate: false,
+        submittedAt: '2026-11-19T12:00:00',
+        textContent: 'My query optimization report',
+      }
+    ];
+
+    api.get.mockImplementation((url) => {
+      if (url.includes('/assignments/70/submissions')) {
+        return Promise.resolve({ data: mockSubmissions });
+      }
+      if (url.includes('/assignments')) {
+        return Promise.resolve({ data: mockAssignments });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await act(async () => {
+      render(
+        <AssignmentsDesk
+          courseId={1}
+          batches={mockBatches}
+          isFaculty={true}
+          user={{ id: 1, role: 'FACULTY', name: 'Prof Smith' }}
+          courseCode="CS301"
+        />
+      );
+    });
+
+    expect(screen.getByText('Reject Submission')).toBeInTheDocument();
+  });
 });

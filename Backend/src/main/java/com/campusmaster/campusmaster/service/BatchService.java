@@ -118,6 +118,9 @@ public class BatchService {
         if (student.getRole() != Role.STUDENT) {
             throw new AccessDeniedException("Only students can join batches with a join code");
         }
+        if (!student.isProfileCompleted()) {
+            throw new BadRequestException("Please complete your student profile before enrolling in courses.");
+        }
 
         String normalizedCode = joinCode.trim().toUpperCase();
         Batch batch = batchRepository.findByJoinCode(normalizedCode)

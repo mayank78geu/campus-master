@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import { fileHref } from '../services/files';
 import { 
   Plus, Calendar, Clock, CheckCircle2, AlertCircle, FileText, Download, 
   ExternalLink, Copy, Check, Award, Send, X, Layers, Users, RefreshCw,
-  ArrowLeft, ChevronRight, FileUp, BookOpen
+  ArrowLeft, ChevronRight, FileUp, BookOpen, XCircle, AlertTriangle
 } from 'lucide-react';
 
 export default function AssignmentsDesk({ courseId, batches, isFaculty, user, courseCode = 'DBMS' }) {
@@ -31,6 +32,9 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [activeSubmitAsg, setActiveSubmitAsg] = useState(null);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [rejecting, setRejecting] = useState(false);
 
   // Create Assignment State
   const [newTitle, setNewTitle] = useState('');
@@ -97,6 +101,7 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
         const names = (sub.studentName || 'Student').trim().split(' ');
         const initials = (names[0][0] + (names.length > 1 ? names[names.length - 1][0] : '')).toUpperCase();
         const firstAtt = sub.attachments && sub.attachments.length > 0 ? sub.attachments[0] : null;
+        const isRejected = sub.status === 'REJECTED';
         return {
           id: sub.studentId || (idx + 1),
           submissionId: sub.id,
@@ -106,8 +111,11 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
           fileName: firstAtt ? firstAtt.fileName : (sub.textContent ? 'Submission Response' : null),
           fileUrl: firstAtt ? fileHref(firstAtt.fileUrl) : null,
           fileSize: firstAtt && firstAtt.fileSize ? (firstAtt.fileSize / 1024 / 1024).toFixed(1) + ' MB' : 'Online Response',
-          status: sub.isLate ? 'Late' : 'On time',
-          statusType: sub.isLate ? 'late' : 'on_time',
+          status: isRejected ? 'Rejected' : (sub.isLate ? 'Late' : 'On time'),
+          statusType: isRejected ? 'rejected' : (sub.isLate ? 'late' : 'on_time'),
+          isRejected: isRejected,
+          rejectionReason: sub.rejectionReason,
+          rejectedAt: sub.rejectedAt,
           submittedAt: sub.submittedAt ? new Date(sub.submittedAt).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Recently',
           lateDuration: sub.isLate ? 'Late submission' : null,
           marks: sub.marks,
@@ -199,6 +207,45 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
     } else {
       setSuccessMsg('Marks published successfully! All students can now view their evaluated score and feedback.');
       setTimeout(() => setSuccessMsg(''), 4000);
+    }
+  };
+
+  const handleRejectSubmission = async (e) => {
+    e.preventDefault();
+    if (!selectedStudent?.submissionId) return;
+    if (!rejectionReasonInput.trim()) {
+      alert('Please provide a reason for rejecting this submission.');
+      return;
+    }
+    setRejecting(true);
+    try {
+      await api.patch(`/submissions/${selectedStudent.submissionId}/reject`, {
+        reason: rejectionReasonInput.trim(),
+      });
+      setStudentsData(prev => prev.map(s => {
+        if (s.id === selectedStudentId) {
+          return {
+            ...s,
+            isRejected: true,
+            status: 'Rejected',
+            statusType: 'rejected',
+            rejectionReason: rejectionReasonInput.trim(),
+            rejectedAt: new Date().toISOString(),
+            marks: null,
+          };
+        }
+        return s;
+      }));
+      setIsRejectModalOpen(false);
+      setSuccessMsg(`Submission for ${selectedStudent.name} was rejected. The student has been notified to resubmit.`);
+      setTimeout(() => setSuccessMsg(''), 4500);
+      if (selectedAssignment?.id) {
+        fetchSubmissions(selectedAssignment.id);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to reject submission');
+    } finally {
+      setRejecting(false);
     }
   };
 
@@ -407,6 +454,7 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                 const isPastDue = dueDateObj && dueDateObj < new Date();
                 const isSubmitted = asg.mySubmission != null;
                 const isGraded = isSubmitted && asg.mySubmission.marksPublished;
+                const isRejected = isSubmitted && asg.mySubmission.status === 'REJECTED';
 
                 return (
                   <button
@@ -418,9 +466,9 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                       gap: '0.5rem',
                       padding: '0.45rem 0.95rem',
                       borderRadius: '10px',
-                      border: isSelected ? '2px solid #0D9488' : '1px solid #E2E8F0',
-                      backgroundColor: isSelected ? '#F0FDF4' : '#FFFFFF',
-                      color: isSelected ? '#0D9488' : '#1E293B',
+                      border: isSelected ? '2px solid #0D9488' : isRejected ? '1.5px dashed #F87171' : '1px solid #E2E8F0',
+                      backgroundColor: isSelected ? '#F0FDF4' : isRejected ? '#FEF2F2' : '#FFFFFF',
+                      color: isSelected ? '#0D9488' : isRejected ? '#DC2626' : '#1E293B',
                       fontWeight: 700,
                       fontSize: '0.82rem',
                       cursor: 'pointer',
@@ -435,10 +483,10 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                         fontWeight: 800,
                         padding: '0.1rem 0.4rem',
                         borderRadius: '4px',
-                        backgroundColor: isGraded ? '#D1FAE5' : isSubmitted ? '#E0F2FE' : isPastDue ? '#FEE2E2' : '#FEF3C7',
-                        color: isGraded ? '#065F46' : isSubmitted ? '#0369A1' : isPastDue ? '#DC2626' : '#B45309',
+                        backgroundColor: isRejected ? '#FEE2E2' : isGraded ? '#D1FAE5' : isSubmitted ? '#E0F2FE' : isPastDue ? '#FEE2E2' : '#FEF3C7',
+                        color: isRejected ? '#DC2626' : isGraded ? '#065F46' : isSubmitted ? '#0369A1' : isPastDue ? '#DC2626' : '#B45309',
                       }}>
-                        {isGraded ? `${asg.mySubmission.marks}/${asg.maxMarks}` : isSubmitted ? 'Submitted' : isPastDue ? 'Past Due' : 'Due Soon'}
+                        {isRejected ? 'Rejected - Resubmit' : isGraded ? `${asg.mySubmission.marks}/${asg.maxMarks}` : isSubmitted ? 'Submitted' : isPastDue ? 'Past Due' : 'Due Soon'}
                       </span>
                     )}
                     {isFaculty && (
@@ -581,8 +629,8 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
               Your Submission
             </h3>
 
-            {/* If submitted */}
-            {selectedAssignment?.mySubmission ? (
+            {/* If submitted and NOT rejected */}
+            {selectedAssignment?.mySubmission && selectedAssignment.mySubmission.status !== 'REJECTED' ? (
               <div>
                 <div style={{
                   backgroundColor: '#ECFDF5',
@@ -656,66 +704,110 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                 )}
               </div>
             ) : (
-              /* Upload Form */
-              <form onSubmit={handleStudentSubmit}>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Upload Submission File (PDF, DOCX, ZIP)
-                  </label>
-                  <input
-                    type="file"
-                    required
-                    onChange={(e) => setSubmissionFile(e.target.files[0])}
+              /* Upload / Resubmit Form */
+              <div>
+                {selectedAssignment?.mySubmission?.status === 'REJECTED' && (
+                  <div style={{
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    borderRadius: '12px',
+                    padding: '14px 16px',
+                    marginBottom: '16px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      <AlertTriangle size={18} color="#DC2626" />
+                      <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#991B1B' }}>
+                        Submission Rejected — Resubmission Required
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '13px', color: '#B91C1C', margin: '0 0 8px', lineHeight: 1.45 }}>
+                      The instructor rejected your previous submission (Version {selectedAssignment.mySubmission.version || 1}) and requested that you resubmit.
+                    </p>
+                    {selectedAssignment.mySubmission.rejectionReason && (
+                      <div style={{
+                        backgroundColor: '#FFFFFF',
+                        border: '1px dashed #F87171',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        fontSize: '12.5px',
+                        color: '#7F1D1D',
+                        marginBottom: '8px',
+                        lineHeight: 1.4,
+                      }}>
+                        <strong>Instructor Reason:</strong> {selectedAssignment.mySubmission.rejectionReason}
+                      </div>
+                    )}
+                    {selectedAssignment.mySubmission.attachments && selectedAssignment.mySubmission.attachments.length > 0 && (
+                      <div style={{ fontSize: '12px', color: '#7F1D1D', marginBottom: '8px' }}>
+                        Previously uploaded: <strong>{selectedAssignment.mySubmission.attachments[0].fileName}</strong>
+                      </div>
+                    )}
+                    <div style={{ fontSize: '11.5px', color: '#991B1B' }}>
+                      Please review the feedback above, adjust your files, and submit again below.
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleStudentSubmit}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px' }}>
+                      {selectedAssignment?.mySubmission?.status === 'REJECTED' ? 'Upload Revised File (PDF, DOCX, ZIP)' : 'Upload Submission File (PDF, DOCX, ZIP)'}
+                    </label>
+                    <input
+                      type="file"
+                      required
+                      onChange={(e) => setSubmissionFile(e.target.files[0])}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '1px dashed #CBD5E1',
+                        borderRadius: '10px',
+                        backgroundColor: '#F8FAFC',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px' }}>
+                      {selectedAssignment?.mySubmission?.status === 'REJECTED' ? 'Resubmission Notes / Remarks (Optional)' : 'Submission Notes / Remarks (Optional)'}
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder={selectedAssignment?.mySubmission?.status === 'REJECTED' ? "Explain what changes you made in this revised submission..." : "Add any notes or context for your submission..."}
+                      value={submissionText}
+                      onChange={(e) => setSubmissionText(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        borderRadius: '10px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '13px',
+                        resize: 'vertical',
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
                     style={{
                       width: '100%',
-                      padding: '10px',
-                      border: '1px dashed #CBD5E1',
+                      backgroundColor: selectedAssignment?.mySubmission?.status === 'REJECTED' ? '#DC2626' : '#0F766E',
+                      color: '#FFFFFF',
+                      border: 'none',
                       borderRadius: '10px',
-                      backgroundColor: '#F8FAFC',
-                      fontSize: '13px',
+                      padding: '12px',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      cursor: submitting ? 'not-allowed' : 'pointer',
+                      opacity: submitting ? 0.7 : 1,
                     }}
-                  />
-                </div>
-
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Submission Notes / Remarks (Optional)
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Add any notes or context for your submission..."
-                    value={submissionText}
-                    onChange={(e) => setSubmissionText(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '10px',
-                      borderRadius: '10px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '13px',
-                      resize: 'vertical',
-                    }}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  style={{
-                    width: '100%',
-                    backgroundColor: '#0F766E',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: '10px',
-                    padding: '12px',
-                    fontSize: '14px',
-                    fontWeight: 700,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                    opacity: submitting ? 0.7 : 1,
-                  }}
-                >
-                  {submitting ? 'Submitting Work...' : 'Submit Assignment'}
-                </button>
-              </form>
+                  >
+                    {submitting ? 'Submitting Work...' : selectedAssignment?.mySubmission?.status === 'REJECTED' ? 'Resubmit Assignment' : 'Submit Assignment'}
+                  </button>
+                </form>
+              </div>
             )}
           </div>
         </div>
@@ -1070,6 +1162,30 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
 
                         {/* Badges row */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.25rem' }}>
+                          {selectedStudent.isRejected && (
+                            <div style={{
+                              backgroundColor: '#FEF2F2',
+                              border: '1px solid #FCA5A5',
+                              borderRadius: '8px',
+                              padding: '0.6rem 0.85rem',
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: '0.5rem',
+                              marginBottom: '0.25rem',
+                            }}>
+                              <AlertTriangle size={16} color="#DC2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+                              <div>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#991B1B' }}>
+                                  Submission Rejected
+                                </span>
+                                {selectedStudent.rejectionReason && (
+                                  <div style={{ fontSize: '0.74rem', color: '#B91C1C', marginTop: '0.15rem' }}>
+                                    "{selectedStudent.rejectionReason}"
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           {selectedStudent.lateDuration && (
                             <span style={{
                               backgroundColor: '#FEF3C7',
@@ -1237,7 +1353,7 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                         </div>
 
                         {/* Action Buttons */}
-                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
                           <button
                             onClick={handleSaveGrade}
                             style={{
@@ -1246,7 +1362,7 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                               color: '#0F172A',
                               border: '1px solid #CBD5E1',
                               borderRadius: '10px',
-                              padding: '0.65rem 1rem',
+                              padding: '0.65rem 0.85rem',
                               fontWeight: 700,
                               fontSize: '0.88rem',
                               cursor: 'pointer',
@@ -1257,18 +1373,43 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                           <button
                             onClick={handleSaveAndNext}
                             style={{
-                              flex: 1.5,
+                              flex: 1.2,
                               backgroundColor: '#0B132B',
                               color: '#FFFFFF',
                               border: 'none',
                               borderRadius: '10px',
-                              padding: '0.65rem 1rem',
+                              padding: '0.65rem 0.85rem',
                               fontWeight: 700,
                               fontSize: '0.88rem',
                               cursor: 'pointer',
                             }}
                           >
-                            Save and next
+                            Save & next
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectionReasonInput(selectedStudent.rejectionReason || '');
+                              setIsRejectModalOpen(true);
+                            }}
+                            title="Reject submission and prompt student to submit again"
+                            style={{
+                              backgroundColor: '#FEF2F2',
+                              color: '#DC2626',
+                              border: '1px solid #FECACA',
+                              borderRadius: '10px',
+                              padding: '0.65rem 0.85rem',
+                              fontWeight: 700,
+                              fontSize: '0.82rem',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '0.35rem',
+                            }}
+                          >
+                            <XCircle size={15} />
+                            <span>{selectedStudent.isRejected ? 'Edit Rejection' : 'Reject Submission'}</span>
                           </button>
                         </div>
                       </div>
@@ -1294,115 +1435,55 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
     </>
   )}
 
-      {/* Modal: Create Assignment */}
-      {isCreateModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1rem',
-        }}>
+      {/* Modals with Animation */}
+      <AnimatePresence>
+        {isCreateModalOpen && (
           <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '540px',
-            padding: '2rem',
-            border: '1px solid #E2E8F0',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
-                Create Assignment for {batchTermName}
-              </h3>
-              <button onClick={() => setIsCreateModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateAssignment}>
-              <div style={{ marginBottom: '1.15rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                  Title *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Lab Assignment 2: Normalization"
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.85rem',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.9rem',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: '16px',
+                width: '100%',
+                maxWidth: '540px',
+                padding: '2rem',
+                border: '1px solid #E2E8F0',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                  Create Assignment for {batchTermName}
+                </h3>
+                <button onClick={() => setIsCreateModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                  <X size={20} />
+                </button>
               </div>
 
-              <div style={{ marginBottom: '1.15rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                  Instructions & Problem Statement
-                </label>
-                <textarea
-                  rows={4}
-                  value={newInstructions}
-                  onChange={(e) => setNewInstructions(e.target.value)}
-                  placeholder="Describe the submission requirements, format, and questions..."
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.85rem',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    outline: 'none',
-                    resize: 'vertical',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1rem', marginBottom: '1.15rem' }}>
-                <div>
+              <form onSubmit={handleCreateAssignment}>
+                <div style={{ marginBottom: '1.15rem' }}>
                   <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                    Due Date & Time *
+                    Title *
                   </label>
                   <input
-                    type="datetime-local"
+                    type="text"
                     required
-                    value={newDueDate}
-                    onChange={(e) => setNewDueDate(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '0.65rem 0.85rem',
-                      borderRadius: '8px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '0.88rem',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                    Max Marks *
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    required
-                    value={newMaxMarks}
-                    onChange={(e) => setNewMaxMarks(e.target.value)}
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="e.g. Lab Assignment 2: Normalization"
                     style={{
                       width: '100%',
                       padding: '0.65rem 0.85rem',
@@ -1414,71 +1495,263 @@ export default function AssignmentsDesk({ courseId, batches, isFaculty, user, co
                     }}
                   />
                 </div>
-              </div>
 
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                  Late Submission Policy
-                </label>
-                <select
-                  value={newLatePolicy}
-                  onChange={(e) => setNewLatePolicy(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.85rem',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    fontSize: '0.88rem',
-                    outline: 'none',
-                    backgroundColor: '#FFFFFF',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <option value="ACCEPT_MARK_LATE">Accept late submissions (marked as late)</option>
-                  <option value="BLOCK_AFTER_DEADLINE">Block submissions after deadline</option>
-                  <option value="DEDUCT_PERCENTAGE">Deduct percentage penalty for late submission</option>
-                </select>
-              </div>
+                <div style={{ marginBottom: '1.15rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                    Instructions & Problem Statement
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={newInstructions}
+                    onChange={(e) => setNewInstructions(e.target.value)}
+                    placeholder="Describe the submission requirements, format, and questions..."
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.88rem',
+                      outline: 'none',
+                      resize: 'vertical',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  style={{
-                    padding: '0.65rem 1.25rem',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    backgroundColor: '#FFFFFF',
-                    color: '#334155',
-                    fontWeight: 600,
-                    fontSize: '0.88rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  style={{
-                    padding: '0.65rem 1.5rem',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: '#0D9488',
-                    color: '#FFFFFF',
-                    fontWeight: 700,
-                    fontSize: '0.88rem',
-                    cursor: creating ? 'not-allowed' : 'pointer',
-                    opacity: creating ? 0.7 : 1,
-                  }}
-                >
-                  {creating ? 'Publishing...' : 'Publish Assignment'}
-                </button>
-              </div>
-            </form>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1rem', marginBottom: '1.15rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                      Due Date & Time *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={newDueDate}
+                      onChange={(e) => setNewDueDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.88rem',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                      Max Marks *
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      required
+                      value={newMaxMarks}
+                      onChange={(e) => setNewMaxMarks(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        fontSize: '0.9rem',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                    Late Submission Policy
+                  </label>
+                  <select
+                    value={newLatePolicy}
+                    onChange={(e) => setNewLatePolicy(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.88rem',
+                      outline: 'none',
+                      backgroundColor: '#FFFFFF',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <option value="ACCEPT_MARK_LATE">Accept late submissions (marked as late)</option>
+                    <option value="BLOCK_AFTER_DEADLINE">Block submissions after deadline</option>
+                    <option value="DEDUCT_PERCENTAGE">Deduct percentage penalty for late submission</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateModalOpen(false)}
+                    style={{
+                      padding: '0.65rem 1.25rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#334155',
+                      fontWeight: 600,
+                      fontSize: '0.88rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creating}
+                    style={{
+                      padding: '0.65rem 1.5rem',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#0D9488',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '0.88rem',
+                      cursor: creating ? 'not-allowed' : 'pointer',
+                      opacity: creating ? 0.7 : 1,
+                    }}
+                  >
+                    {creating ? 'Publishing...' : 'Publish Assignment'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Modal: Reject Submission & Prompt Resubmission */}
+        {isRejectModalOpen && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: '16px',
+                width: '100%',
+                maxWidth: '520px',
+                padding: '2rem',
+                border: '1px solid #E2E8F0',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '50%',
+                    backgroundColor: '#FEE2E2',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#DC2626'
+                  }}>
+                    <XCircle size={22} />
+                  </div>
+                  <div>
+                    <h3 className="font-display" style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                      Reject Submission
+                    </h3>
+                    <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '0.15rem 0 0' }}>
+                      {selectedStudent?.name} · {selectedAssignment?.title}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setIsRejectModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleRejectSubmission}>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                    Reason for Rejection *
+                  </label>
+                  <textarea
+                    rows={4}
+                    required
+                    value={rejectionReasonInput}
+                    onChange={(e) => setRejectionReasonInput(e.target.value)}
+                    placeholder="e.g. Incomplete solution: missing functional dependency normalization for Q3. Please revise and upload the updated PDF."
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.88rem',
+                      color: '#0F172A',
+                      lineHeight: 1.5,
+                      resize: 'vertical',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '0.4rem', lineHeight: 1.4 }}>
+                    The student will be alerted with this reason and given the ability to submit their revised work.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsRejectModalOpen(false)}
+                    style={{
+                      padding: '0.65rem 1.25rem',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#334155',
+                      fontWeight: 600,
+                      fontSize: '0.88rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={rejecting}
+                    style={{
+                      padding: '0.65rem 1.5rem',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#DC2626',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '0.88rem',
+                      cursor: rejecting ? 'not-allowed' : 'pointer',
+                      opacity: rejecting ? 0.7 : 1,
+                    }}
+                  >
+                    {rejecting ? 'Rejecting...' : 'Reject & Notify Student'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

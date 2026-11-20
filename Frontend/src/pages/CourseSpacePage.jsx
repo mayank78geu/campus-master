@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import api, { API_ORIGIN } from '../services/api';
 import { fileHref } from '../services/files';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import AssignmentsDesk from '../components/AssignmentsDesk';
 import BatchChatWindow from '../components/BatchChatWindow';
-import { 
-  ArrowLeft, BookOpen, Layers, Users, Copy, Check, Plus, RefreshCw, 
+import FacultyAttendanceTab from '../components/FacultyAttendanceTab';
+import StudentAttendanceTab from '../components/StudentAttendanceTab';
+import {
+  ArrowLeft, BookOpen, Layers, Users, Copy, Check, Plus, RefreshCw,
   FileText, Link as LinkIcon, Download, Eye, History, Search, ExternalLink,
   UploadCloud, FileUp, CheckCircle2, AlertCircle, X, Calendar, BarChart3,
-  MoreVertical, ChevronRight, Upload
+  MoreVertical, ChevronRight, Upload, Pencil, Trash2
 } from 'lucide-react';
 
 export default function CourseSpacePage() {
@@ -67,6 +70,18 @@ export default function CourseSpacePage() {
   const [newVersionFile, setNewVersionFile] = useState(null);
   const [versionChangeNote, setVersionChangeNote] = useState('');
   const [uploadingVersion, setUploadingVersion] = useState(false);
+
+  // Edit & Delete Resource State
+  const [editingResource, setEditingResource] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editUnitId, setEditUnitId] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [editFile, setEditFile] = useState(null);
+  const [editIsPublished, setEditIsPublished] = useState(true);
+  const [updatingResource, setUpdatingResource] = useState(false);
+  const [deletingResource, setDeletingResource] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Toast State
   const [toast, setToast] = useState(null);
@@ -290,7 +305,7 @@ export default function CourseSpacePage() {
     try {
       await api.post(`/resources/${resItem.id}/view`);
       setResources(prev => prev.map(r => r.id === resItem.id ? { ...r, viewCount: (r.viewCount || 0) + 1 } : r));
-    } catch (e) {}
+    } catch (e) { }
     window.open(resItem.externalUrl, '_blank', 'noopener,noreferrer');
   };
 
@@ -298,8 +313,80 @@ export default function CourseSpacePage() {
     try {
       await api.post(`/resources/${resItem.id}/download`);
       setResources(prev => prev.map(r => r.id === resItem.id ? { ...r, downloadCount: (r.downloadCount || 0) + 1 } : r));
-    } catch (e) {}
+    } catch (e) { }
     window.open(fileHref(resItem.fileUrl), '_blank');
+  };
+
+  const handleOpenEditResource = (resItem) => {
+    setEditingResource(resItem);
+    setEditTitle(resItem.title || '');
+    setEditDesc(resItem.description || '');
+    setEditUnitId(resItem.unitId ? String(resItem.unitId) : '');
+    setEditUrl(resItem.externalUrl || '');
+    setEditFile(null);
+    setEditIsPublished(resItem.isPublished !== false);
+  };
+
+  const handleUpdateResource = async (e) => {
+    e.preventDefault();
+    if (!editingResource) return;
+    if (!editTitle.trim()) {
+      alert('Please enter a resource title');
+      return;
+    }
+    setUpdatingResource(true);
+    try {
+      if (editingResource.resourceType === 'FILE' && editFile) {
+        const formData = new FormData();
+        formData.append('title', editTitle.trim());
+        formData.append('description', editDesc || '');
+        if (editUnitId) formData.append('unitId', editUnitId);
+        formData.append('isPublished', editIsPublished);
+        formData.append('file', editFile);
+
+        const token = localStorage.getItem('cm_token');
+        const res = await fetch(`${API_ORIGIN}/api/v1/resources/${editingResource.id}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData,
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Update failed');
+      } else {
+        await api.put(`/resources/${editingResource.id}`, {
+          title: editTitle.trim(),
+          description: editDesc || '',
+          unitId: editUnitId ? Number(editUnitId) : null,
+          externalUrl: editingResource.resourceType === 'URL' ? editUrl.trim() : null,
+          isPublished: editIsPublished,
+        });
+      }
+      showToast('Resource updated successfully!');
+      setEditingResource(null);
+      const resRes = await api.get(`/courses/${id}/resources`);
+      setResources(resRes.data || []);
+    } catch (err) {
+      alert(err.message || 'Failed to update resource');
+    } finally {
+      setUpdatingResource(false);
+    }
+  };
+
+  const handleDeleteResource = async () => {
+    if (!deletingResource) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/resources/${deletingResource.id}`);
+      showToast(`"${deletingResource.title}" was deleted successfully.`);
+      setResources(prev => prev.filter(r => r.id !== deletingResource.id));
+      setDeletingResource(null);
+    } catch (err) {
+      alert(err.message || 'Failed to delete resource');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // Color helper for resource format badges matching Image 3
@@ -323,9 +410,9 @@ export default function CourseSpacePage() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const match = (r.title && r.title.toLowerCase().includes(q)) ||
-                    (r.description && r.description.toLowerCase().includes(q)) ||
-                    (r.fileName && r.fileName.toLowerCase().includes(q)) ||
-                    (r.externalUrl && r.externalUrl.toLowerCase().includes(q));
+        (r.description && r.description.toLowerCase().includes(q)) ||
+        (r.fileName && r.fileName.toLowerCase().includes(q)) ||
+        (r.externalUrl && r.externalUrl.toLowerCase().includes(q));
       if (!match) return false;
     }
 
@@ -504,6 +591,36 @@ export default function CourseSpacePage() {
                   LIVE
                 </span>
               </button>
+              <button
+                onClick={() => setActiveTab('attendance')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: activeTab === 'attendance' ? 700 : 500,
+                  backgroundColor: activeTab === 'attendance' ? '#FFFFFF' : 'transparent',
+                  color: activeTab === 'attendance' ? '#0B132B' : '#64748B',
+                  boxShadow: activeTab === 'attendance' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>Attendance</span>
+                <span style={{
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  backgroundColor: '#059669',
+                  color: '#FFFFFF',
+                  letterSpacing: '0.04em',
+                }}>
+                  QR
+                </span>
+              </button>
             </div>
 
             {isFaculty && (
@@ -556,28 +673,74 @@ export default function CourseSpacePage() {
         </div>
 
         {/* View Mode: Assignments Desk or Live Batch Chat or Materials Space */}
-        {activeTab === 'assignments' ? (
-          <AssignmentsDesk 
-            courseId={id} 
-            batches={batches} 
-            isFaculty={isFaculty} 
-            user={user} 
-            courseCode={course?.code || 'DBMS'} 
-          />
-        ) : activeTab === 'chat' ? (
-          <BatchChatWindow
-            courseId={id}
-            batches={batches}
-            selectedBatch={selectedBatch}
-            onSelectBatch={setSelectedBatch}
-            isFaculty={isFaculty}
-            user={user}
-            courseCode={course?.code || 'COURSE'}
-          />
-        ) : (
-          /* View Mode: Materials Space matching Image 3! */
-          <div>
-            {/* Batches Selector Card */}
+        <AnimatePresence mode="wait">
+          {activeTab === 'assignments' ? (
+            <motion.div
+              key="assignments"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <AssignmentsDesk
+                courseId={id}
+                batches={batches}
+                isFaculty={isFaculty}
+                user={user}
+                courseCode={course?.code || 'DBMS'}
+              />
+            </motion.div>
+          ) : activeTab === 'chat' ? (
+            <motion.div
+              key="chat"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <BatchChatWindow
+                courseId={id}
+                batches={batches}
+                selectedBatch={selectedBatch}
+                onSelectBatch={setSelectedBatch}
+                isFaculty={isFaculty}
+                user={user}
+                courseCode={course?.code || 'COURSE'}
+              />
+            </motion.div>
+          ) : activeTab === 'attendance' ? (
+            <motion.div
+              key="attendance"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              {isFaculty ? (
+                <FacultyAttendanceTab
+                  courseId={id}
+                  courseCode={course?.code || 'COURSE'}
+                  courseName={course?.name || 'Course'}
+                />
+              ) : (
+                <StudentAttendanceTab
+                  courseId={id}
+                  courseCode={course?.code || 'COURSE'}
+                  courseName={course?.name || 'Course'}
+                  user={user}
+                />
+              )}
+            </motion.div>
+          ) : (
+            /* View Mode: Materials Space matching Image 3! */
+            <motion.div
+              key="materials"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              {/* Batches Selector Card */}
             <div style={{
               backgroundColor: '#FFFFFF',
               borderRadius: '20px',
@@ -971,14 +1134,14 @@ export default function CourseSpacePage() {
                             </div>
                           </div>
 
-                          {/* Right Group: Status Chip & Three Dots */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          {/* Right Group: Status Chip & Action Buttons */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
                             <span style={{
                               backgroundColor: resItem.isPublished ? '#D1FAE5' : '#FEF3C7',
                               color: resItem.isPublished ? '#065F46' : '#B45309',
                               borderRadius: '6px',
-                              padding: '0.2rem 0.6rem',
-                              fontSize: '0.75rem',
+                              padding: '0.2rem 0.55rem',
+                              fontSize: '0.72rem',
                               fontWeight: 700,
                             }}>
                               {resItem.isPublished ? 'Published' : 'Draft'}
@@ -996,6 +1159,7 @@ export default function CourseSpacePage() {
                                   display: 'flex',
                                   alignItems: 'center',
                                   padding: '0.35rem',
+                                  borderRadius: '6px',
                                 }}
                               >
                                 <ExternalLink size={16} />
@@ -1012,14 +1176,54 @@ export default function CourseSpacePage() {
                                   display: 'flex',
                                   alignItems: 'center',
                                   padding: '0.35rem',
+                                  borderRadius: '6px',
                                 }}
                               >
                                 <Download size={16} />
                               </button>
                             )}
 
+                            {/* Faculty Edit & Delete Options */}
+                            {isFaculty && (
+                              <>
+                                <button
+                                  onClick={() => handleOpenEditResource(resItem)}
+                                  title="Edit Resource"
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#0284C7',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: '0.35rem',
+                                    borderRadius: '6px',
+                                  }}
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                                <button
+                                  onClick={() => setDeletingResource(resItem)}
+                                  title="Delete Resource"
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#EF4444',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: '0.35rem',
+                                    borderRadius: '6px',
+                                  }}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </>
+                            )}
+
                             <button
                               onClick={() => setSelectedResourceVersions(resItem)}
+                              title="Version History"
                               style={{
                                 background: 'none',
                                 border: 'none',
@@ -1028,6 +1232,7 @@ export default function CourseSpacePage() {
                                 display: 'flex',
                                 alignItems: 'center',
                                 padding: '0.25rem',
+                                borderRadius: '6px',
                               }}
                             >
                               <MoreVertical size={16} />
@@ -1293,8 +1498,9 @@ export default function CourseSpacePage() {
                 )}
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
         {/* Upload Resource Modal */}
         {isUploadModalOpen && (
@@ -1769,6 +1975,279 @@ export default function CourseSpacePage() {
             </div>
           </div>
         )}
+
+        {/* Edit Resource Modal */}
+        <AnimatePresence>
+          {editingResource && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1rem',
+            }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '520px',
+                  padding: '2rem',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+                  border: '1px solid #E2E8F0',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '50%',
+                      backgroundColor: '#E0F2FE',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#0284C7'
+                    }}>
+                      <Pencil size={18} />
+                    </div>
+                    <div>
+                      <h2 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                        Edit Resource
+                      </h2>
+                      <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '0.15rem 0 0' }}>
+                        {editingResource.resourceType === 'URL' ? 'External Link' : 'File Document'} · Version {editingResource.currentVersion || 1}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setEditingResource(null)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontSize: '1.25rem' }}>
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleUpdateResource}>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>
+                      Resource Title *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  {course?.units && course.units.length > 0 && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>
+                        Syllabus Unit
+                      </label>
+                      <select
+                        value={editUnitId}
+                        onChange={(e) => setEditUnitId(e.target.value)}
+                        style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                      >
+                        <option value="">General Course Material (No Unit)</option>
+                        {course.units.map((u) => (
+                          <option key={u.id} value={u.id}>Unit {u.sortOrder || ''}: {u.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {editingResource.resourceType === 'URL' ? (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>
+                        External URL *
+                      </label>
+                      <input
+                        type="url"
+                        required
+                        value={editUrl}
+                        onChange={(e) => setEditUrl(e.target.value)}
+                        style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>
+                        Replace Document File (Optional)
+                      </label>
+                      <div style={{ fontSize: '0.78rem', color: '#64748B', marginBottom: '0.35rem' }}>
+                        Current file: <strong>{editingResource.fileName || 'Attached File'}</strong>
+                      </div>
+                      <input
+                        type="file"
+                        onChange={(e) => setEditFile(e.target.files[0])}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      />
+                      <p style={{ fontSize: '0.74rem', color: '#64748B', margin: '0.3rem 0 0' }}>
+                        Uploading a new file will automatically increment this resource to Version {(editingResource.currentVersion || 1) + 1}.
+                      </p>
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>
+                      Description (Optional)
+                    </label>
+                    <textarea
+                      rows="2"
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      placeholder="Brief notes or description..."
+                      style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.9rem', resize: 'vertical', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      id="editIsPublished"
+                      checked={editIsPublished}
+                      onChange={(e) => setEditIsPublished(e.target.checked)}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="editIsPublished" style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+                      Published (visible to enrolled students)
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setEditingResource(null)}
+                      style={{ background: 'transparent', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.6rem 1.25rem', fontSize: '0.88rem', cursor: 'pointer' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={updatingResource}
+                      style={{
+                        backgroundColor: '#0F766E',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '0.6rem 1.5rem',
+                        fontWeight: 700,
+                        fontSize: '0.88rem',
+                        cursor: updatingResource ? 'not-allowed' : 'pointer',
+                        opacity: updatingResource ? 0.7 : 1,
+                      }}
+                    >
+                      {updatingResource ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Delete Resource Confirmation Modal */}
+          {deletingResource && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1rem',
+            }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '460px',
+                  padding: '2rem',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+                  border: '1px solid #E2E8F0',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                  <div style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '50%',
+                    backgroundColor: '#FEE2E2',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#DC2626'
+                  }}>
+                    <Trash2 size={22} />
+                  </div>
+                  <div>
+                    <h3 className="font-display" style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                      Delete Resource
+                    </h3>
+                    <p style={{ fontSize: '0.78rem', color: '#64748B', margin: '0.15rem 0 0' }}>
+                      Permanent removal
+                    </p>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+                  Are you sure you want to delete <strong>"{deletingResource.title}"</strong>? All associated version files and student access links will be permanently deleted.
+                </p>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingResource(null)}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '8px',
+                      padding: '0.6rem 1.25rem',
+                      fontSize: '0.88rem',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteResource}
+                    disabled={deleting}
+                    style={{
+                      backgroundColor: '#DC2626',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '0.6rem 1.4rem',
+                      fontWeight: 700,
+                      fontSize: '0.88rem',
+                      cursor: deleting ? 'not-allowed' : 'pointer',
+                      opacity: deleting ? 0.7 : 1,
+                    }}
+                  >
+                    {deleting ? 'Deleting...' : 'Delete Resource'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         {/* Toast Notification */}
         {toast && (

@@ -20,6 +20,9 @@ public class SubmissionResponse {
     private Double marks;
     private String feedback;
     private boolean marksPublished;
+    private com.campusmaster.campusmaster.entity.SubmissionStatus status;
+    private String rejectionReason;
+    private LocalDateTime rejectedAt;
     private Integer version;
     private List<AttachmentDto> attachments;
 

@@ -45,6 +45,10 @@ public class SubmissionService {
 
     @Transactional
     public SubmissionResponse submitAssignment(Long assignmentId, String textContent, List<MultipartFile> files, User student) {
+        if (student.getRole() == Role.STUDENT && !student.isProfileCompleted()) {
+            throw new BadRequestException("Please complete your student profile before submitting assignments.");
+        }
+
         Assignment assignment = assignmentRepository.findById(assignmentId)
             .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));
 
@@ -62,11 +66,14 @@ public class SubmissionService {
         LocalDateTime now = LocalDateTime.now();
         boolean isLate = now.isAfter(assignment.getDueDate());
 
-        if (isLate && assignment.getLatePolicy() == LatePolicy.BLOCK_AFTER_DEADLINE) {
+        Optional<Submission> existingOpt = submissionRepository.findByAssignmentIdAndStudentId(assignmentId, student.getId());
+        boolean wasRejected = existingOpt.isPresent() && existingOpt.get().getStatus() == SubmissionStatus.REJECTED;
+
+        // If assignment deadline passed and late policy blocks, allow only if student was asked to resubmit
+        if (isLate && assignment.getLatePolicy() == LatePolicy.BLOCK_AFTER_DEADLINE && !wasRejected) {
             throw new BadRequestException("Submissions are closed for this assignment. Deadline has passed.");
         }
 
-        Optional<Submission> existingOpt = submissionRepository.findByAssignmentIdAndStudentId(assignmentId, student.getId());
         Submission submission;
 
         if (existingOpt.isPresent()) {
@@ -82,6 +89,9 @@ public class SubmissionService {
             submission.setMarks(null);
             submission.setFeedback(null);
             submission.setMarksPublished(false);
+            submission.setStatus(SubmissionStatus.SUBMITTED);
+            submission.setRejectionReason(null);
+            submission.setRejectedAt(null);
             // Replace previous attachments
             submission.getAttachments().clear();
         } else {
@@ -94,6 +104,7 @@ public class SubmissionService {
                 .receiptToken(generateReceiptToken(assignment.getId()))
                 .version(1)
                 .marksPublished(false)
+                .status(SubmissionStatus.SUBMITTED)
                 .build();
         }
 
@@ -174,6 +185,9 @@ public class SubmissionService {
 
         submission.setMarks(request.getMarks());
         submission.setFeedback(request.getFeedback());
+        submission.setStatus(SubmissionStatus.EVALUATED);
+        submission.setRejectionReason(null);
+        submission.setRejectedAt(null);
         submission = submissionRepository.save(submission);
 
         if (submission.isMarksPublished() && Boolean.TRUE.equals(request.getRegrade())) {
@@ -185,6 +199,33 @@ public class SubmissionService {
                 "/courses/" + course.getId() + "?batch=" + assignment.getBatch().getId() + "&tab=assignments"
             );
         }
+
+        return mapToResponse(submission, faculty);
+    }
+
+    @Transactional
+    public SubmissionResponse rejectSubmission(Long submissionId, com.campusmaster.campusmaster.dto.assignment.RejectSubmissionRequest request, User faculty) {
+        Submission submission = submissionRepository.findById(submissionId)
+            .orElseThrow(() -> new ResourceNotFoundException("Submission not found"));
+
+        Assignment assignment = submission.getAssignment();
+        Course course = assignment.getBatch().getCourse();
+        courseAccessService.requireFacultyOf(course, faculty);
+
+        submission.setStatus(SubmissionStatus.REJECTED);
+        submission.setRejectionReason(request.getReason() != null ? request.getReason().trim() : "Resubmission requested by instructor");
+        submission.setRejectedAt(LocalDateTime.now());
+        submission.setMarks(null);
+        submission.setMarksPublished(false);
+        submission = submissionRepository.save(submission);
+
+        notificationService.notifyUser(
+            submission.getStudent(),
+            "Submission Rejected: " + assignment.getTitle(),
+            "Your submission for assignment '" + assignment.getTitle() + "' was rejected by the instructor. Reason: " + submission.getRejectionReason() + ". Please resubmit your work.",
+            "SUBMISSION_REJECTED",
+            "/courses/" + course.getId() + "?batch=" + assignment.getBatch().getId() + "&tab=assignments"
+        );
 
         return mapToResponse(submission, faculty);
     }
@@ -230,6 +271,9 @@ public class SubmissionService {
             .marks(canSeeMarks ? s.getMarks() : null)
             .feedback(canSeeMarks ? s.getFeedback() : null)
             .marksPublished(s.isMarksPublished())
+            .status(s.getStatus())
+            .rejectionReason(s.getRejectionReason())
+            .rejectedAt(s.getRejectedAt())
             .version(s.getVersion())
             .attachments(s.getAttachments().stream().map(att ->
                 SubmissionResponse.AttachmentDto.builder()

@@ -187,6 +187,9 @@ public class AssignmentService {
             Double marks = (submitted && submissionOpt.get().isMarksPublished()) ? submissionOpt.get().getMarks() : null;
             boolean marksPublished = submitted && submissionOpt.get().isMarksPublished();
             String receiptToken = submitted ? submissionOpt.get().getReceiptToken() : null;
+            com.campusmaster.campusmaster.entity.SubmissionStatus status = submitted ? submissionOpt.get().getStatus() : null;
+            String rejectionReason = submitted ? submissionOpt.get().getRejectionReason() : null;
+            LocalDateTime rejectedAt = submitted ? submissionOpt.get().getRejectedAt() : null;
 
             deadlines.add(DeadlineResponse.builder()
                 .assignmentId(a.getId())
@@ -204,6 +207,9 @@ public class AssignmentService {
                 .marks(marks)
                 .marksPublished(marksPublished)
                 .receiptToken(receiptToken)
+                .status(status)
+                .rejectionReason(rejectionReason)
+                .rejectedAt(rejectedAt)
                 .build());
         }
 
@@ -237,6 +243,9 @@ public class AssignmentService {
                     .marks(s.isMarksPublished() ? s.getMarks() : null)
                     .feedback(s.isMarksPublished() ? s.getFeedback() : null)
                     .marksPublished(s.isMarksPublished())
+                    .status(s.getStatus())
+                    .rejectionReason(s.getRejectionReason())
+                    .rejectedAt(s.getRejectedAt())
                     .version(s.getVersion())
                     .attachments(s.getAttachments().stream().map(att ->
                         SubmissionResponse.AttachmentDto.builder()

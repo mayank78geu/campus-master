@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, BookOpen, Users, Shield, ChevronDown } from 'lucide-react';
 
 export default function LandingPage({ onOpenAuth }) {
@@ -36,57 +37,63 @@ export default function LandingPage({ onOpenAuth }) {
         padding: '5rem 1.5rem 4rem',
         textAlign: 'center',
       }}>
-        <div className="badge-chip" style={{ margin: '0 auto 1.5rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Two Roles, One Simple App
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+        >
+          <div className="badge-chip" style={{ margin: '0 auto 1.5rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Two Roles, One Simple App
+          </div>
 
-        <h1 className="font-display" style={{
-          fontSize: 'clamp(2.75rem, 5.5vw, 4.5rem)',
-          fontWeight: 800,
-          color: 'var(--ink)',
-          lineHeight: 1.05,
-          letterSpacing: '-0.035em',
-          maxWidth: '900px',
-          margin: '0 auto 1.5rem',
-        }}>
-          Upload once. Teach every batch.
-        </h1>
+          <h1 className="font-display" style={{
+            fontSize: 'clamp(2.75rem, 5.5vw, 4.5rem)',
+            fontWeight: 800,
+            color: 'var(--ink)',
+            lineHeight: 1.05,
+            letterSpacing: '-0.035em',
+            maxWidth: '900px',
+            margin: '0 auto 1.5rem',
+          }}>
+            Upload once. Teach every batch.
+          </h1>
 
-        <p style={{
-          fontSize: 'clamp(1.05rem, 2vw, 1.25rem)',
-          color: 'var(--ink-secondary)',
-          maxWidth: '680px',
-          margin: '0 auto 2.5rem',
-          lineHeight: 1.6,
-        }}>
-          A permanent resource space that outlives the semester. Every new batch joins and sees earlier notes, slides, and syllabus automatically.
-        </p>
+          <p style={{
+            fontSize: 'clamp(1.05rem, 2vw, 1.25rem)',
+            color: 'var(--ink-secondary)',
+            maxWidth: '680px',
+            margin: '0 auto 2.5rem',
+            lineHeight: 1.6,
+          }}>
+            A permanent resource space that outlives the semester. Every new batch joins and sees earlier notes, slides, and syllabus automatically.
+          </p>
 
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '1rem',
-          marginBottom: '3.5rem',
-        }}>
-          <button
-            onClick={() => onOpenAuth('register', 'FACULTY')}
-            className="btn-primary"
-            style={{ fontSize: '1rem', minHeight: '52px', padding: '0 2rem' }}
-          >
-            <span>Create a Faculty Account</span>
-            <ArrowRight size={18} />
-          </button>
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1rem',
+            marginBottom: '3.5rem',
+          }}>
+            <button
+              onClick={() => onOpenAuth('register', 'FACULTY')}
+              className="btn-primary"
+              style={{ fontSize: '1rem', minHeight: '52px', padding: '0 2rem' }}
+            >
+              <span>Create a Faculty Account</span>
+              <ArrowRight size={18} />
+            </button>
 
-          <button
-            onClick={() => onOpenAuth('register', 'STUDENT')}
-            className="btn-outline"
-            style={{ fontSize: '1rem', minHeight: '52px', padding: '0 2rem' }}
-          >
-            <span>Join as a Student</span>
-          </button>
-        </div>
+            <button
+              onClick={() => onOpenAuth('register', 'STUDENT')}
+              className="btn-outline"
+              style={{ fontSize: '1rem', minHeight: '52px', padding: '0 2rem' }}
+            >
+              <span>Join as a Student</span>
+            </button>
+          </div>
+        </motion.div>
 
         {/* Feature Grid with signature asymmetric geometry from design.html */}
         <div style={{
@@ -97,12 +104,16 @@ export default function LandingPage({ onOpenAuth }) {
           marginTop: '3rem',
         }}>
           {/* Card 1: Permanent Resources */}
-          <div className="rounded-card-3" style={{
-            backgroundColor: '#FFFFFF',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-card)',
-          }}>
+          <motion.div
+            whileHover={{ y: -6, transition: { duration: 0.2 } }}
+            className="rounded-card-3"
+            style={{
+              backgroundColor: '#FFFFFF',
+              padding: '2rem',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
             <div style={{
               width: '44px',
               height: '44px',
@@ -122,15 +133,19 @@ export default function LandingPage({ onOpenAuth }) {
             <p style={{ color: 'var(--ink-muted)', fontSize: '0.95rem', lineHeight: 1.55 }}>
               Upload PDFs, slides, documents, and reference URLs once. When a new batch joins, they see every previous unit's material with zero re-sharing.
             </p>
-          </div>
+          </motion.div>
 
           {/* Card 2: Join Codes */}
-          <div className="rounded-card-1" style={{
-            backgroundColor: '#FFFFFF',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-card)',
-          }}>
+          <motion.div
+            whileHover={{ y: -6, transition: { duration: 0.2 } }}
+            className="rounded-card-1"
+            style={{
+              backgroundColor: '#FFFFFF',
+              padding: '2rem',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
             <div style={{
               width: '44px',
               height: '44px',
@@ -150,15 +165,19 @@ export default function LandingPage({ onOpenAuth }) {
             <p style={{ color: 'var(--ink-muted)', fontSize: '0.95rem', lineHeight: 1.55 }}>
               Share a unique 6-character code per batch. Students join instantly with auto-approval or faculty review. Remove or regenerate at any time.
             </p>
-          </div>
+          </motion.div>
 
           {/* Card 3: Private by Design */}
-          <div className="rounded-card-4" style={{
-            backgroundColor: '#FFFFFF',
-            padding: '2rem',
-            border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-card)',
-          }}>
+          <motion.div
+            whileHover={{ y: -6, transition: { duration: 0.2 } }}
+            className="rounded-card-4"
+            style={{
+              backgroundColor: '#FFFFFF',
+              padding: '2rem',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
             <div style={{
               width: '44px',
               height: '44px',
@@ -178,7 +197,7 @@ export default function LandingPage({ onOpenAuth }) {
             <p style={{ color: 'var(--ink-muted)', fontSize: '0.95rem', lineHeight: 1.55 }}>
               Students see strictly their own submissions, deadlines, and marks. No class-wide spreadsheets or leaked gradebooks.
             </p>
-          </div>
+          </motion.div>
         </div>
       </section>
 
@@ -224,11 +243,21 @@ export default function LandingPage({ onOpenAuth }) {
                   }}
                 />
               </button>
-              {openFaq === idx && (
-                <div style={{ padding: '0 0.5rem 1.25rem', color: 'var(--ink-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
-                  {faq.a}
-                </div>
-              )}
+              <AnimatePresence>
+                {openFaq === idx && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <div style={{ padding: '0 0.5rem 1.25rem', color: 'var(--ink-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
+                      {faq.a}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           ))}
         </div>

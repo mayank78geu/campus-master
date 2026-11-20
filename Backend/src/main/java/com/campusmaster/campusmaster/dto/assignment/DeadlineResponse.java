@@ -23,4 +23,7 @@ public class DeadlineResponse {
     private Double marks;
     private boolean marksPublished;
     private String receiptToken;
+    private com.campusmaster.campusmaster.entity.SubmissionStatus status;
+    private String rejectionReason;
+    private LocalDateTime rejectedAt;
 }

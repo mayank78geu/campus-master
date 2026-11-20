@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { X, GraduationCap, Briefcase, Mail, Lock, User, AlertCircle } from 'lucide-react';
 
 export default function AuthModal({ isOpen, onClose, initialMode = 'login', initialRole = 'FACULTY' }) {
   const { login, register } = useAuth();
+  const navigate = useNavigate();
   const [mode, setMode] = useState(initialMode); // 'login' or 'register'
   const [role, setRole] = useState(initialRole); // 'FACULTY' or 'STUDENT'
   const [name, setName] = useState('');
@@ -19,12 +22,18 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
     setError('');
     setSubmitting(true);
     try {
+      let authData;
       if (mode === 'login') {
-        await login(email, password);
+        authData = await login(email, password);
       } else {
-        await register(name, email, password, role);
+        authData = await register(name, email, password, role);
       }
       onClose();
+      if (authData?.role === 'STUDENT' && !authData?.isProfileCompleted) {
+        navigate('/profile');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err.message || 'Authentication failed');
     } finally {
@@ -44,15 +53,21 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
       zIndex: 100,
       padding: '1rem',
     }}>
-      <div style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: '24px',
-        width: '100%',
-        maxWidth: '460px',
-        boxShadow: 'var(--shadow-elevation)',
-        overflow: 'hidden',
-        border: '1px solid var(--border)',
-      }}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+        transition={{ duration: 0.2 }}
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: '24px',
+          width: '100%',
+          maxWidth: '460px',
+          boxShadow: 'var(--shadow-elevation)',
+          overflow: 'hidden',
+          border: '1px solid var(--border)',
+        }}
+      >
         {/* Modal Header */}
         <div style={{
           padding: '1.25rem 1.5rem',
@@ -297,7 +312,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
             {submitting ? 'Please wait...' : (mode === 'login' ? 'Sign In to Campus Master' : `Register as ${role === 'FACULTY' ? 'Faculty' : 'Student'}`)}
           </button>
         </form>
-      </div>
+      </motion.div>
     </div>
   );
 }

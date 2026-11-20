@@ -18,4 +18,10 @@ public class AuthResponse {
     private String name;
     private String email;
     private Role role;
+    private String studentId;
+    private String course;
+    private String section;
+    private String classRollNo;
+    private String phoneNumber;
+    private boolean isProfileCompleted;
 }

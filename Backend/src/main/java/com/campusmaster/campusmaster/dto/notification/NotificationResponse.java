@@ -1,6 +1,7 @@
 package com.campusmaster.campusmaster.dto.notification;
 
 import com.campusmaster.campusmaster.entity.Notification;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,11 +18,34 @@ public class NotificationResponse {
     private String message;
     private String eventType;
     private String targetUrl;
+
+    @JsonProperty("isRead")
     private boolean isRead;
+
     private Long announcementId;
     private String priority;
     private String authorName;
     private LocalDateTime createdAt;
+
+    @JsonProperty("isRead")
+    public boolean isRead() {
+        return isRead;
+    }
+
+    @JsonProperty("isRead")
+    public void setIsRead(boolean isRead) {
+        this.isRead = isRead;
+    }
+
+    @JsonProperty("read")
+    public boolean getRead() {
+        return isRead;
+    }
+
+    @JsonProperty("read")
+    public void setRead(boolean read) {
+        this.isRead = read;
+    }
 
     public static NotificationResponse fromEntity(Notification n) {
         return NotificationResponse.builder()

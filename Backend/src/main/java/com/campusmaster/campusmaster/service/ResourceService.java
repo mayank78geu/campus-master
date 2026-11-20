@@ -283,6 +283,87 @@ public class ResourceService {
             .collect(Collectors.toList());
     }
 
+    @Transactional
+    public ResourceResponse updateResource(
+            Long resourceId,
+            String title,
+            String description,
+            Long unitId,
+            String externalUrl,
+            Boolean isPublished,
+            MultipartFile file,
+            User faculty
+    ) {
+        Resource resource = resourceRepository.findById(resourceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Resource not found with id: " + resourceId));
+
+        validateFacultyOwnership(resource.getCourse(), faculty);
+
+        if (title != null && !title.trim().isEmpty()) {
+            resource.setTitle(title.trim());
+        }
+        if (description != null) {
+            resource.setDescription(description);
+        }
+        if (isPublished != null) {
+            resource.setPublished(isPublished);
+        }
+
+        if (unitId != null) {
+            if (unitId <= 0) {
+                resource.setUnit(null);
+            } else {
+                Unit unit = unitRepository.findById(unitId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Unit not found: " + unitId));
+                if (!unit.getCourse().getId().equals(resource.getCourse().getId())) {
+                    throw new BadRequestException("Unit does not belong to this course");
+                }
+                resource.setUnit(unit);
+            }
+        }
+
+        if (resource.getResourceType() == ResourceType.URL) {
+            if (externalUrl != null && !externalUrl.trim().isEmpty()) {
+                resource.setFileUrl(externalUrl.trim());
+            }
+        } else if (file != null && !file.isEmpty()) {
+            FileUploadValidator.validateSingleFile(file);
+            String storedPath = storageService.storeFile(file, "courses/" + resource.getCourse().getId());
+            int newVersion = resource.getCurrentVersion() + 1;
+
+            ResourceVersion version = ResourceVersion.builder()
+                .resource(resource)
+                .versionNumber(newVersion)
+                .fileUrl(storedPath)
+                .fileName(file.getOriginalFilename())
+                .fileSize(file.getSize())
+                .mimeType(file.getContentType())
+                .changeNote("Modified resource upload")
+                .createdBy(faculty)
+                .build();
+
+            resourceVersionRepository.save(version);
+            resource.setCurrentVersion(newVersion);
+            resource.setFileUrl(storedPath);
+            resource.setFileName(file.getOriginalFilename());
+            resource.setFileSize(file.getSize());
+            resource.setMimeType(file.getContentType());
+            resource.getVersions().add(0, version);
+        }
+
+        resource = resourceRepository.save(resource);
+        return mapToResponse(resource);
+    }
+
+    @Transactional
+    public void deleteResource(Long resourceId, User faculty) {
+        Resource resource = resourceRepository.findById(resourceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Resource not found with id: " + resourceId));
+
+        validateFacultyOwnership(resource.getCourse(), faculty);
+        resourceRepository.delete(resource);
+    }
+
     private ResourceResponse mapToResponse(Resource r) {
         ResourceResponse resp = ResourceResponse.fromEntity(r);
         resp.setFileUrl(storageService.getDownloadUrl(r.getFileUrl()));

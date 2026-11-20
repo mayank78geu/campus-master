@@ -7,6 +7,7 @@ import LandingPage from './pages/LandingPage';
 import FacultyDashboard from './pages/FacultyDashboard';
 import StudentDashboard from './pages/StudentDashboard';
 import CourseSpacePage from './pages/CourseSpacePage';
+import StudentProfilePage from './pages/StudentProfilePage';
 
 function DashboardRouter() {
   const { user, loading } = useAuth();
@@ -23,7 +24,28 @@ function DashboardRouter() {
     return <Navigate to="/" replace />;
   }
 
+  if (user.role === 'STUDENT' && !user.isProfileCompleted) {
+    return <Navigate to="/profile" replace />;
+  }
+
   return user.role === 'FACULTY' ? <FacultyDashboard /> : <StudentDashboard />;
+}
+
+function CourseSpaceRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/" replace />;
+  if (user.role === 'STUDENT' && !user.isProfileCompleted) {
+    return <Navigate to="/profile" replace />;
+  }
+  return <CourseSpacePage />;
+}
+
+function ProfileRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/" replace />;
+  return <StudentProfilePage />;
 }
 
 function MainApp() {
@@ -49,7 +71,8 @@ function MainApp() {
         <Routes>
           <Route path="/" element={<LandingPage onOpenAuth={handleOpenAuth} />} />
           <Route path="/dashboard" element={<DashboardRouter />} />
-          <Route path="/courses/:id" element={<CourseSpacePage />} />
+          <Route path="/profile" element={<ProfileRoute />} />
+          <Route path="/courses/:id" element={<CourseSpaceRoute />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

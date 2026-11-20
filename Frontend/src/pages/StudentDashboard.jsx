@@ -1,11 +1,12 @@
 import { fileHref } from '../services/files';
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import { 
-  Search, ArrowRight, CheckCircle2, AlertCircle, FileText, Link as LinkIcon,
+  Search, ArrowRight, CheckCircle2, AlertCircle, AlertTriangle, FileText, Link as LinkIcon,
   Bell, Check, Clock, Calendar, Download, FileUp, X, BookOpen, Filter, Award, ChevronRight, Megaphone
 } from 'lucide-react';
 
@@ -42,13 +43,21 @@ export default function StudentDashboard() {
   // Notifications State
   const [notifications, setNotifications] = useState([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
-  const [notifFilter, setNotifFilter] = useState('ALL'); // ALL, UNREAD
+  const [notifFilter, setNotifFilter] = useState('ALL'); // ALL, UNREAD, ANNOUNCEMENTS
+  const [readingAnnouncement, setReadingAnnouncement] = useState(null);
+
+  const isNotifRead = (n) => Boolean(n && (n.isRead || n.read));
 
   const fetchNotifications = async () => {
     try {
       setLoadingNotifs(true);
       const res = await api.get('/notifications');
-      setNotifications(res.data || []);
+      const normalized = (res.data || []).map(n => ({
+        ...n,
+        isRead: n.isRead !== undefined ? Boolean(n.isRead) : Boolean(n.read),
+        read: n.read !== undefined ? Boolean(n.read) : Boolean(n.isRead),
+      }));
+      setNotifications(normalized);
     } catch (e) {
       console.error(e);
     } finally {
@@ -61,7 +70,7 @@ export default function StudentDashboard() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'notifications') {
+    if (activeTab === 'notifications' || activeTab === 'home') {
       fetchNotifications();
     }
   }, [activeTab]);
@@ -69,16 +78,32 @@ export default function StudentDashboard() {
   const handleMarkAllNotificationsRead = async () => {
     try {
       await api.patch('/notifications/read-all');
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true, read: true })));
+      window.dispatchEvent(new Event('cm-notifications-updated'));
     } catch (e) {
       console.error(e);
     }
   };
 
-  const handleMarkSingleNotificationRead = async (id) => {
+  const handleMarkSingleNotificationRead = async (id, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
     try {
       await api.patch(`/notifications/${id}/read`);
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true, read: true } : n));
+      setReadingAnnouncement(prev => (prev && prev.id === id) ? { ...prev, isRead: true, read: true } : prev);
+      window.dispatchEvent(new Event('cm-notifications-updated'));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleMarkSingleNotificationUnread = async (id, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    try {
+      await api.patch(`/notifications/${id}/unread`);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: false, read: false } : n));
+      setReadingAnnouncement(prev => (prev && prev.id === id) ? { ...prev, isRead: false, read: false } : prev);
+      window.dispatchEvent(new Event('cm-notifications-updated'));
     } catch (e) {
       console.error(e);
     }
@@ -197,8 +222,9 @@ export default function StudentDashboard() {
       d.courseCode?.toLowerCase().includes(deadlineSearch.toLowerCase());
     
     if (!matchesSearch) return false;
-    if (deadlineFilter === 'PENDING') return !d.submitted;
-    if (deadlineFilter === 'SUBMITTED') return d.submitted;
+    if (deadlineFilter === 'REJECTED') return d.status === 'REJECTED';
+    if (deadlineFilter === 'PENDING') return !d.submitted || d.status === 'REJECTED';
+    if (deadlineFilter === 'SUBMITTED') return d.submitted && d.status !== 'REJECTED';
     if (deadlineFilter === 'EVALUATED') return d.marksPublished && d.marks !== null && d.marks !== undefined;
     return true;
   });
@@ -212,12 +238,12 @@ export default function StudentDashboard() {
 
   // Filtered notifications
   const filteredNotifs = notifications.filter(n => {
-    if (notifFilter === 'UNREAD') return !n.isRead;
+    if (notifFilter === 'UNREAD') return !isNotifRead(n);
     if (notifFilter === 'ANNOUNCEMENTS') return n.eventType === 'ANNOUNCEMENT';
     return true;
   });
 
-  const unreadNotifsCount = notifications.filter(n => !n.isRead).length;
+  const unreadNotifsCount = notifications.filter(n => !isNotifRead(n)).length;
   const announcementsNotifsCount = notifications.filter(n => n.eventType === 'ANNOUNCEMENT').length;
 
   return (
@@ -358,10 +384,19 @@ export default function StudentDashboard() {
         )}
 
         {/* =========================================================================
-            TAB 1: MY COURSES PAGE
+            TAB CONTENT WITH SMOOTH ANIMATION
            ========================================================================= */}
-        {activeTab === 'courses' ? (
-          <div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            {/* TAB 1: MY COURSES PAGE */}
+            {activeTab === 'courses' ? (
+              <div>
             {/* Top Toolbar */}
             <div style={{
               display: 'flex',
@@ -572,8 +607,15 @@ export default function StudentDashboard() {
               <div className="cm-scrollable-pills" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {[
                   { key: 'ALL', label: `All (${displayDeadlines.length})` },
+                  ...(displayDeadlines.filter(d => d.status === 'REJECTED').length > 0 ? [
+                    { 
+                      key: 'REJECTED', 
+                      label: `⚠️ Action Required / Rejected (${displayDeadlines.filter(d => d.status === 'REJECTED').length})`,
+                      isAlert: true
+                    }
+                  ] : []),
                   { key: 'PENDING', label: `Pending (${displayDeadlines.filter(d => !d.submitted).length})` },
-                  { key: 'SUBMITTED', label: `Submitted (${displayDeadlines.filter(d => d.submitted).length})` },
+                  { key: 'SUBMITTED', label: `Submitted (${displayDeadlines.filter(d => d.submitted && d.status !== 'REJECTED').length})` },
                   { key: 'EVALUATED', label: `Graded (${displayDeadlines.filter(d => d.marksPublished).length})` },
                 ].map(tab => (
                   <button
@@ -584,10 +626,10 @@ export default function StudentDashboard() {
                       borderRadius: '8px',
                       fontSize: '0.85rem',
                       fontWeight: 700,
-                      border: 'none',
+                      border: tab.isAlert ? '1.5px solid #FCA5A5' : 'none',
                       cursor: 'pointer',
-                      backgroundColor: deadlineFilter === tab.key ? '#0B132B' : '#FFFFFF',
-                      color: deadlineFilter === tab.key ? '#FFFFFF' : '#64748B',
+                      backgroundColor: deadlineFilter === tab.key ? (tab.isAlert ? '#DC2626' : '#0B132B') : (tab.isAlert ? '#FEF2F2' : '#FFFFFF'),
+                      color: deadlineFilter === tab.key ? '#FFFFFF' : (tab.isAlert ? '#DC2626' : '#64748B'),
                       boxShadow: deadlineFilter === tab.key ? '0 2px 6px rgba(11, 19, 43, 0.2)' : '0 1px 2px rgba(0,0,0,0.03)',
                       transition: 'all 0.15s ease',
                     }}
@@ -683,6 +725,23 @@ export default function StudentDashboard() {
                           <p style={{ fontSize: '0.82rem', color: '#64748B', margin: 0 }}>
                             Due: {dueDateObj ? dueDateObj.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Pending'}
                           </p>
+                          {item.status === 'REJECTED' && (
+                            <div style={{
+                              marginTop: '0.5rem',
+                              backgroundColor: '#FEF2F2',
+                              border: '1px solid #FECACA',
+                              borderRadius: '8px',
+                              padding: '0.4rem 0.75rem',
+                              fontSize: '0.8rem',
+                              color: '#991B1B',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}>
+                              <AlertTriangle size={14} color="#DC2626" />
+                              <span><strong>Instructor Feedback:</strong> {item.rejectionReason || 'Submission rejected by instructor. Please resubmit.'}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -699,6 +758,21 @@ export default function StudentDashboard() {
                               fontWeight: 800,
                             }}>
                               Score: {item.marks} / {item.maxMarks || 20}
+                            </span>
+                          ) : item.status === 'REJECTED' ? (
+                            <span style={{
+                              backgroundColor: '#FEE2E2',
+                              color: '#DC2626',
+                              borderRadius: '6px',
+                              padding: '0.25rem 0.75rem',
+                              fontSize: '0.78rem',
+                              fontWeight: 800,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}>
+                              <AlertTriangle size={13} />
+                              Rejected - Resubmit
                             </span>
                           ) : item.submitted ? (
                             <span style={{
@@ -727,8 +801,8 @@ export default function StudentDashboard() {
 
                         <button
                           style={{
-                            backgroundColor: item.submitted ? '#F1F5F9' : '#0F766E',
-                            color: item.submitted ? '#0F172A' : '#FFFFFF',
+                            backgroundColor: item.status === 'REJECTED' ? '#DC2626' : item.submitted ? '#F1F5F9' : '#0F766E',
+                            color: item.status === 'REJECTED' ? '#FFFFFF' : item.submitted ? '#0F172A' : '#FFFFFF',
                             border: 'none',
                             borderRadius: '8px',
                             padding: '0.55rem 1.15rem',
@@ -737,7 +811,7 @@ export default function StudentDashboard() {
                             cursor: 'pointer',
                           }}
                         >
-                          {item.submitted ? 'View Submission' : 'Submit Work'}
+                          {item.status === 'REJECTED' ? 'Resubmit Assignment' : item.submitted ? 'View Submission' : 'Submit Work'}
                         </button>
                       </div>
                     </div>
@@ -833,7 +907,7 @@ export default function StudentDashboard() {
                 </button>
               </div>
 
-              {notifications.some(n => !n.isRead) && (
+              {notifications.some(n => !isNotifRead(n)) && (
                 <button
                   onClick={handleMarkAllNotificationsRead}
                   style={{
@@ -876,21 +950,54 @@ export default function StudentDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 {filteredNotifs.map(n => {
                   const isAnnouncement = n.eventType === 'ANNOUNCEMENT';
-                  const isUrgent = n.priority === 'URGENT';
+                  const isRejected = n.eventType === 'SUBMISSION_REJECTED';
+                  const isUrgent = n.priority === 'URGENT' || isRejected;
                   const isImportant = n.priority === 'IMPORTANT';
+                  const isRead = isNotifRead(n);
+
+                  const handleOpenRejectionSubmit = (e) => {
+                    if (e) e.stopPropagation();
+                    if (!isRead) handleMarkSingleNotificationRead(n.id);
+                    const matched = displayDeadlines.find(d => (d.assignmentId || d.id) === n.referenceId);
+                    if (matched) {
+                      setSubmittingAsg(matched);
+                    } else {
+                      setSubmittingAsg({
+                        assignmentId: n.referenceId,
+                        id: n.referenceId,
+                        title: n.title?.replace('Submission Rejected: ', '') || 'Assignment',
+                        status: 'REJECTED',
+                        rejectionReason: n.message,
+                        submitted: true,
+                      });
+                    }
+                  };
 
                   return (
                     <div
                       key={n.id}
-                      onClick={() => handleMarkSingleNotificationRead(n.id)}
+                      onClick={() => {
+                        if (isRejected) {
+                          handleOpenRejectionSubmit();
+                        } else if (isAnnouncement) {
+                          if (!isRead) handleMarkSingleNotificationRead(n.id);
+                          setReadingAnnouncement(n);
+                        } else {
+                          if (!isRead) handleMarkSingleNotificationRead(n.id);
+                        }
+                      }}
                       style={{
-                        backgroundColor: isAnnouncement
-                          ? (n.isRead ? '#FFFFFF' : '#F0FDFA')
-                          : (n.isRead ? '#FFFFFF' : '#F8FAFC'),
+                        backgroundColor: isRejected
+                          ? (isRead ? '#FFFFFF' : '#FEF2F2')
+                          : isAnnouncement
+                            ? (isRead ? '#FFFFFF' : '#F0FDFA')
+                            : (isRead ? '#FFFFFF' : '#F8FAFC'),
                         borderRadius: '14px',
-                        border: isAnnouncement
-                          ? (n.isRead ? '1px solid #CCFBF1' : '1.5px solid #0D9488')
-                          : '1px solid ' + (n.isRead ? '#E2E8F0' : '#CBD5E1'),
+                        border: isRejected
+                          ? (isRead ? '1px solid #FECACA' : '1.5px solid #DC2626')
+                          : isAnnouncement
+                            ? (isRead ? '1px solid #CCFBF1' : '1.5px solid #0D9488')
+                            : '1px solid ' + (isRead ? '#E2E8F0' : '#CBD5E1'),
                         padding: '1.25rem 1.5rem',
                         display: 'flex',
                         alignItems: 'flex-start',
@@ -905,24 +1012,41 @@ export default function StudentDashboard() {
                           width: '42px',
                           height: '42px',
                           borderRadius: '12px',
-                          backgroundColor: isAnnouncement
-                            ? (isUrgent ? '#FEE2E2' : '#CCFBF1')
-                            : (n.isRead ? '#F1F5F9' : '#E0F2FE'),
-                          color: isAnnouncement
-                            ? (isUrgent ? '#DC2626' : '#0F766E')
-                            : (n.isRead ? '#64748B' : '#0369A1'),
+                          backgroundColor: isRejected
+                            ? '#FEE2E2'
+                            : isAnnouncement
+                              ? (isUrgent ? '#FEE2E2' : (isRead ? '#F0FDFA' : '#CCFBF1'))
+                              : (isRead ? '#F1F5F9' : '#E0F2FE'),
+                          color: isRejected
+                            ? '#DC2626'
+                            : isAnnouncement
+                              ? (isUrgent ? '#DC2626' : '#0F766E')
+                              : (isRead ? '#64748B' : '#0369A1'),
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
                         }}>
-                          {isAnnouncement ? <Megaphone size={20} /> : <Bell size={18} />}
+                          {isRejected ? <AlertTriangle size={20} /> : isAnnouncement ? <Megaphone size={20} /> : <Bell size={18} />}
                         </div>
 
                         <div style={{ flex: 1 }}>
                           {/* Announcement Badges & Author Header */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
-                            {isAnnouncement && (
+                            {isRejected ? (
+                              <span style={{
+                                backgroundColor: '#FEE2E2',
+                                color: '#991B1B',
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
+                              }}>
+                                ⚠️ Resubmission Required
+                              </span>
+                            ) : isAnnouncement ? (
                               <span style={{
                                 backgroundColor: isUrgent ? '#FEE2E2' : (isImportant ? '#FEF3C7' : '#CCFBF1'),
                                 color: isUrgent ? '#991B1B' : (isImportant ? '#B45309' : '#0F766E'),
@@ -935,21 +1059,43 @@ export default function StudentDashboard() {
                               }}>
                                 {isUrgent ? '⚡ Urgent Announcement' : (isImportant ? '★ Important Notice' : '📢 Official Announcement')}
                               </span>
+                            ) : null}
+
+                            {isRead ? (
+                              <span style={{
+                                backgroundColor: '#F1F5F9',
+                                color: '#475569',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                              }}>
+                                <Check size={11} /> Read
+                              </span>
+                            ) : (
+                              <span style={{
+                                backgroundColor: isRejected ? '#FEE2E2' : '#CCFBF1',
+                                color: isRejected ? '#DC2626' : '#0F766E',
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}>
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: isRejected ? '#DC2626' : '#0D9488' }} />
+                                Action Required
+                              </span>
                             )}
 
                             {n.authorName && (
                               <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748B' }}>
                                 From {n.authorName}
                               </span>
-                            )}
-
-                            {!n.isRead && (
-                              <span style={{
-                                width: '7px',
-                                height: '7px',
-                                borderRadius: '50%',
-                                backgroundColor: '#0F766E',
-                              }} />
                             )}
                           </div>
 
@@ -975,15 +1121,100 @@ export default function StudentDashboard() {
                         </div>
                       </div>
 
-                      <span style={{
-                        fontSize: '0.78rem',
-                        color: '#94A3B8',
-                        whiteSpace: 'nowrap',
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-end',
+                        gap: '0.5rem',
                         marginLeft: '1.25rem',
                         marginTop: '0.2rem',
                       }}>
-                        {n.createdAt ? new Date(n.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                      </span>
+                        <span style={{
+                          fontSize: '0.78rem',
+                          color: '#94A3B8',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {n.createdAt ? new Date(n.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                        </span>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          {isRejected && (
+                            <button
+                              onClick={handleOpenRejectionSubmit}
+                              style={{
+                                backgroundColor: '#DC2626',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '4px 10px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#FFFFFF',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <AlertTriangle size={12} /> Resubmit
+                            </button>
+                          )}
+                          {isAnnouncement && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!isRead) handleMarkSingleNotificationRead(n.id);
+                                setReadingAnnouncement(n);
+                              }}
+                              style={{
+                                backgroundColor: '#F8FAFC',
+                                border: '1px solid #CBD5E1',
+                                borderRadius: '6px',
+                                padding: '3px 8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                color: '#0F766E',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Read Details
+                            </button>
+                          )}
+                          {!isRead ? (
+                            <button
+                              onClick={(e) => handleMarkSingleNotificationRead(n.id, e)}
+                              style={{
+                                backgroundColor: '#FFFFFF',
+                                border: '1px solid #0D9488',
+                                borderRadius: '6px',
+                                padding: '3px 8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#0D9488',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Mark read
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => handleMarkSingleNotificationUnread(n.id, e)}
+                              style={{
+                                backgroundColor: '#FFFFFF',
+                                border: '1px solid #E2E8F0',
+                                borderRadius: '6px',
+                                padding: '3px 8px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                color: '#64748B',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Mark unread
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
@@ -1004,10 +1235,12 @@ export default function StudentDashboard() {
             <div>
               {/* Professor Announcement Alert Banner */}
               {(() => {
-                const latestAnn = notifications.find(n => n.eventType === 'ANNOUNCEMENT' && !n.isRead) ||
-                                  notifications.find(n => n.eventType === 'ANNOUNCEMENT');
+                const unreadAnn = notifications.find(n => n.eventType === 'ANNOUNCEMENT' && !isNotifRead(n));
+                const latestAnn = unreadAnn || notifications.find(n => n.eventType === 'ANNOUNCEMENT');
                 if (!latestAnn) return null;
                 const isUrgent = latestAnn.priority === 'URGENT';
+                const isImportant = latestAnn.priority === 'IMPORTANT';
+                const isRead = isNotifRead(latestAnn);
                 return (
                   <div style={{
                     backgroundColor: '#0B132B',
@@ -1021,7 +1254,7 @@ export default function StudentDashboard() {
                     boxShadow: '0 8px 24px -4px rgba(11, 19, 43, 0.28)',
                     flexWrap: 'wrap',
                     gap: '1rem',
-                    borderLeft: isUrgent ? '5px solid #EF4444' : '5px solid #5EE0C4',
+                    borderLeft: isRead ? '5px solid #64748B' : (isUrgent ? '5px solid #EF4444' : '5px solid #5EE0C4'),
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.1rem', flex: 1, minWidth: '260px' }}>
                       <div style={{
@@ -1029,7 +1262,7 @@ export default function StudentDashboard() {
                         height: '42px',
                         borderRadius: '10px',
                         backgroundColor: '#152542',
-                        color: isUrgent ? '#F87171' : '#5EE0C4',
+                        color: isRead ? '#94A3B8' : (isUrgent ? '#F87171' : '#5EE0C4'),
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -1038,10 +1271,10 @@ export default function StudentDashboard() {
                         <Megaphone size={20} />
                       </div>
                       <div style={{ flex: 1, overflow: 'hidden' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                           <span style={{
-                            backgroundColor: isUrgent ? '#7F1D1D' : '#132F4C',
-                            color: isUrgent ? '#FCA5A5' : '#5EE0C4',
+                            backgroundColor: isRead ? '#1E293B' : (isUrgent ? '#7F1D1D' : '#132F4C'),
+                            color: isRead ? '#94A3B8' : (isUrgent ? '#FCA5A5' : '#5EE0C4'),
                             fontSize: '0.72rem',
                             fontWeight: 800,
                             padding: '2px 8px',
@@ -1049,8 +1282,34 @@ export default function StudentDashboard() {
                             letterSpacing: '0.04em',
                             textTransform: 'uppercase',
                           }}>
-                            {isUrgent ? '⚡ Urgent Announcement' : '📢 Faculty Announcement'}
+                            {isUrgent ? '⚡ Urgent Announcement' : (isImportant ? '★ Important Notice' : '📢 Faculty Announcement')}
                           </span>
+                          {isRead ? (
+                            <span style={{
+                              backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                              color: '#34D399',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                            }}>
+                              <Check size={11} /> Read
+                            </span>
+                          ) : (
+                            <span style={{
+                              backgroundColor: '#EF4444',
+                              color: '#FFFFFF',
+                              fontSize: '0.7rem',
+                              fontWeight: 800,
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                            }}>
+                              Unread
+                            </span>
+                          )}
                           <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>
                             {latestAnn.authorName || 'Faculty'} · {latestAnn.createdAt ? new Date(latestAnn.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent'}
                           </span>
@@ -1073,22 +1332,82 @@ export default function StudentDashboard() {
                       </div>
                     </div>
 
-                    <Link
-                      to="/dashboard?tab=notifications"
-                      style={{
-                        backgroundColor: isUrgent ? '#EF4444' : '#5EE0C4',
-                        color: isUrgent ? '#FFFFFF' : '#0B132B',
-                        padding: '0.6rem 1.25rem',
-                        borderRadius: '8px',
-                        fontSize: '0.85rem',
-                        fontWeight: 800,
-                        textDecoration: 'none',
-                        whiteSpace: 'nowrap',
-                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                      }}
-                    >
-                      View in Notifications
-                    </Link>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => {
+                          if (!isRead) handleMarkSingleNotificationRead(latestAnn.id);
+                          setReadingAnnouncement(latestAnn);
+                        }}
+                        style={{
+                          backgroundColor: isRead ? '#334155' : (isUrgent ? '#EF4444' : '#5EE0C4'),
+                          color: isRead ? '#F8FAFC' : (isUrgent ? '#FFFFFF' : '#0B132B'),
+                          padding: '0.55rem 1.15rem',
+                          borderRadius: '8px',
+                          fontSize: '0.85rem',
+                          fontWeight: 800,
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                        }}
+                      >
+                        <Megaphone size={15} />
+                        <span>Read Details</span>
+                      </button>
+
+                      {!isRead ? (
+                        <button
+                          onClick={() => handleMarkSingleNotificationRead(latestAnn.id)}
+                          style={{
+                            backgroundColor: 'rgba(255,255,255,0.1)',
+                            color: '#FFFFFF',
+                            border: '1px solid rgba(255,255,255,0.25)',
+                            padding: '0.55rem 1rem',
+                            borderRadius: '8px',
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                          }}
+                        >
+                          <Check size={14} />
+                          <span>Mark as read</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleMarkSingleNotificationUnread(latestAnn.id)}
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: '#94A3B8',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            padding: '0.55rem 0.9rem',
+                            borderRadius: '8px',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Mark as unread
+                        </button>
+                      )}
+
+                      <Link
+                        to="/dashboard?tab=notifications"
+                        style={{
+                          color: '#94A3B8',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          textDecoration: 'none',
+                          padding: '0.55rem 0.75rem',
+                        }}
+                      >
+                        All Notifications →
+                      </Link>
+                    </div>
                   </div>
                 );
               })()}
@@ -1178,16 +1497,32 @@ export default function StudentDashboard() {
                               <p style={{ fontSize: '0.82rem', color: '#64748B', margin: 0 }}>
                                 {item.courseName || 'Course'} · Due {dueDateObj ? dueDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '11:59 PM'}
                               </p>
+                              {item.status === 'REJECTED' && (
+                                <p style={{ fontSize: '0.78rem', color: '#DC2626', margin: '0.25rem 0 0', fontWeight: 600 }}>
+                                  ⚠️ Rejected: {item.rejectionReason || 'Resubmission requested by faculty'}
+                                </p>
+                              )}
                             </div>
                           </div>
 
                           {/* Right: Due Time & Status Badge */}
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.35rem' }}>
-                            <span style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 500 }}>
-                              {item.submitted ? 'Submitted' : 'Pending'}
+                            <span style={{ fontSize: '0.82rem', color: item.status === 'REJECTED' ? '#DC2626' : '#64748B', fontWeight: item.status === 'REJECTED' ? 700 : 500 }}>
+                              {item.status === 'REJECTED' ? 'Action Required' : item.submitted ? 'Submitted' : 'Pending'}
                             </span>
 
-                            {item.submitted ? (
+                            {item.status === 'REJECTED' ? (
+                              <span style={{
+                                backgroundColor: '#FEE2E2',
+                                color: '#DC2626',
+                                borderRadius: '6px',
+                                padding: '0.2rem 0.65rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                              }}>
+                                Rejected - Resubmit
+                              </span>
+                            ) : item.submitted ? (
                               <span style={{
                                 backgroundColor: '#D1FAE5',
                                 color: '#065F46',
@@ -1520,28 +1855,37 @@ export default function StudentDashboard() {
             </div>
           </div>
         )}
+          </motion.div>
+        </AnimatePresence>
 
         {/* Quick Assignment Submission & Evaluation Modal */}
-        {submittingAsg && (
-          <div style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(11, 19, 43, 0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            padding: '1rem',
-          }}>
+        <AnimatePresence>
+          {submittingAsg && (
             <div style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              width: '100%',
-              maxWidth: '520px',
-              padding: '24px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1rem',
             }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '520px',
+                  padding: '24px',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+                }}
+              >
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px' }}>
                 <div>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: '#0D9488', textTransform: 'uppercase' }}>
@@ -1579,7 +1923,7 @@ export default function StudentDashboard() {
                   <CheckCircle2 size={36} color="#059669" style={{ margin: '0 auto 10px' }} />
                   <div>{submitSuccess}</div>
                 </div>
-              ) : submittingAsg.submitted ? (
+              ) : (submittingAsg.submitted && submittingAsg.status !== 'REJECTED') ? (
                 <div>
                   <div style={{
                     padding: '16px',
@@ -1630,9 +1974,46 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmitAssignment}>
+                  {submittingAsg.status === 'REJECTED' && (
+                    <div style={{
+                      backgroundColor: '#FEF2F2',
+                      border: '1px solid #FCA5A5',
+                      borderRadius: '12px',
+                      padding: '14px 16px',
+                      marginBottom: '16px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                        <AlertTriangle size={18} color="#DC2626" />
+                        <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#991B1B' }}>
+                          Submission Rejected — Resubmission Required
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '12.5px', color: '#B91C1C', margin: '0 0 8px', lineHeight: 1.4 }}>
+                        Your instructor evaluated your previous submission and requested changes before it can be graded.
+                      </p>
+                      {submittingAsg.rejectionReason && (
+                        <div style={{
+                          backgroundColor: '#FFFFFF',
+                          border: '1px dashed #F87171',
+                          borderRadius: '8px',
+                          padding: '8px 12px',
+                          fontSize: '12.5px',
+                          color: '#7F1D1D',
+                          marginBottom: '8px',
+                          lineHeight: 1.4,
+                        }}>
+                          <strong>Instructor Reason:</strong> {submittingAsg.rejectionReason}
+                        </div>
+                      )}
+                      <div style={{ fontSize: '11.5px', color: '#991B1B' }}>
+                        Please upload your corrected or revised work below and submit again.
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                      Upload Submission File (PDF, DOCX, ZIP) *
+                      {submittingAsg.status === 'REJECTED' ? 'Upload Revised File (PDF, DOCX, ZIP) *' : 'Upload Submission File (PDF, DOCX, ZIP) *'}
                     </label>
                     <input
                       type="file"
@@ -1651,11 +2032,11 @@ export default function StudentDashboard() {
 
                   <div style={{ marginBottom: '20px' }}>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                      Notes or Remarks (Optional)
+                      {submittingAsg.status === 'REJECTED' ? 'Resubmission Notes / Remarks (Optional)' : 'Notes or Remarks (Optional)'}
                     </label>
                     <textarea
                       rows={3}
-                      placeholder="Add any notes or context about your submission..."
+                      placeholder={submittingAsg.status === 'REJECTED' ? 'Explain what adjustments or corrections you made...' : 'Add any notes or context about your submission...'}
                       value={submitText}
                       onChange={(e) => setSubmitText(e.target.value)}
                       style={{
@@ -1681,7 +2062,7 @@ export default function StudentDashboard() {
                       type="submit"
                       disabled={isSubmitting}
                       style={{
-                        backgroundColor: '#0F766E',
+                        backgroundColor: submittingAsg.status === 'REJECTED' ? '#DC2626' : '#0F766E',
                         color: '#FFFFFF',
                         border: 'none',
                         borderRadius: '8px',
@@ -1691,14 +2072,243 @@ export default function StudentDashboard() {
                         cursor: isSubmitting ? 'not-allowed' : 'pointer',
                       }}
                     >
-                      {isSubmitting ? 'Submitting...' : 'Submit Assignment'}
+                      {isSubmitting ? 'Submitting...' : submittingAsg.status === 'REJECTED' ? 'Resubmit Assignment' : 'Submit Assignment'}
                     </button>
                   </div>
                 </form>
               )}
-            </div>
+            </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+        {/* Full Announcement Reader Modal */}
+        <AnimatePresence>
+          {readingAnnouncement && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1rem',
+            }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '640px',
+                  boxShadow: '0 25px 50px -12px rgba(11, 19, 43, 0.25)',
+                  overflow: 'hidden',
+                }}
+              >
+              {/* Modal Header */}
+              <div style={{
+                padding: '1.25rem 1.75rem',
+                borderBottom: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#F8FAFC',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '10px',
+                    backgroundColor: '#CCFBF1',
+                    color: '#0F766E',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Megaphone size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                      Announcement Details
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
+                      Official broadcast from faculty
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setReadingAnnouncement(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#94A3B8',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div style={{ padding: '1.75rem', maxHeight: '60vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                  <span style={{
+                    backgroundColor: readingAnnouncement.priority === 'URGENT' ? '#FEE2E2' : (readingAnnouncement.priority === 'IMPORTANT' ? '#FEF3C7' : '#CCFBF1'),
+                    color: readingAnnouncement.priority === 'URGENT' ? '#991B1B' : (readingAnnouncement.priority === 'IMPORTANT' ? '#B45309' : '#0F766E'),
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}>
+                    {readingAnnouncement.priority === 'URGENT' ? '⚡ Urgent Announcement' : (readingAnnouncement.priority === 'IMPORTANT' ? '★ Important Notice' : '📢 Official Announcement')}
+                  </span>
+
+                  {isNotifRead(readingAnnouncement) ? (
+                    <span style={{
+                      backgroundColor: '#F1F5F9',
+                      color: '#475569',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                    }}>
+                      <Check size={11} /> Read
+                    </span>
+                  ) : (
+                    <span style={{
+                      backgroundColor: '#CCFBF1',
+                      color: '#0F766E',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                    }}>
+                      ● Unread
+                    </span>
+                  )}
+                </div>
+
+                <h2 style={{
+                  fontSize: '1.35rem',
+                  fontWeight: 800,
+                  color: '#0F172A',
+                  lineHeight: 1.3,
+                  margin: '0 0 0.5rem 0',
+                }}>
+                  {readingAnnouncement.title}
+                </h2>
+
+                <div style={{
+                  fontSize: '0.85rem',
+                  color: '#64748B',
+                  marginBottom: '1.25rem',
+                  paddingBottom: '1rem',
+                  borderBottom: '1px solid #F1F5F9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                }}>
+                  {readingAnnouncement.authorName && (
+                    <span>From <strong>{readingAnnouncement.authorName}</strong></span>
+                  )}
+                  {readingAnnouncement.createdAt && (
+                    <span>· {new Date(readingAnnouncement.createdAt).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  )}
+                </div>
+
+                <div style={{
+                  fontSize: '0.95rem',
+                  color: '#334155',
+                  lineHeight: 1.7,
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {readingAnnouncement.message}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div style={{
+                padding: '1.25rem 1.75rem',
+                borderTop: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#F8FAFC',
+              }}>
+                <div>
+                  {!isNotifRead(readingAnnouncement) ? (
+                    <button
+                      onClick={() => handleMarkSingleNotificationRead(readingAnnouncement.id)}
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        border: '1px solid #0D9488',
+                        color: '#0D9488',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <Check size={14} /> Mark as read
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleMarkSingleNotificationUnread(readingAnnouncement.id)}
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        border: '1px solid #CBD5E1',
+                        color: '#64748B',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Mark as unread
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setReadingAnnouncement(null)}
+                  style={{
+                    backgroundColor: '#0F172A',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    padding: '0.5rem 1.25rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       </main>
     </div>
   );

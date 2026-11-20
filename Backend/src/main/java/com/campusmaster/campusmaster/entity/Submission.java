@@ -57,6 +57,16 @@ public class Submission {
     @Builder.Default
     private boolean marksPublished = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    @Builder.Default
+    private SubmissionStatus status = SubmissionStatus.SUBMITTED;
+
+    @Column(columnDefinition = "TEXT")
+    private String rejectionReason;
+
+    private LocalDateTime rejectedAt;
+
     @Column(nullable = false)
     @Builder.Default
     private Integer version = 1;

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { 
-  Home, BookOpen, Calendar, Bell, Users, LayoutGrid, LogOut, Layers, Menu, X, Megaphone
+  Home, BookOpen, Calendar, Bell, Users, LayoutGrid, LogOut, Layers, Menu, X, Megaphone, User
 } from 'lucide-react';
 
 export default function Sidebar({ activeNav }) {
@@ -45,7 +45,16 @@ export default function Sidebar({ activeNav }) {
       }
     };
     fetchCounts();
-    return () => { mounted = false; };
+
+    const handleUpdated = () => {
+      fetchCounts();
+    };
+    window.addEventListener('cm-notifications-updated', handleUpdated);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('cm-notifications-updated', handleUpdated);
+    };
   }, [isFaculty, location.key]);
 
   const handleLogout = () => {
@@ -459,6 +468,27 @@ export default function Sidebar({ activeNav }) {
                     {unreadCount}
                   </span>
                 )}
+              </Link>
+
+              {/* My Profile */}
+              <Link
+                to="/profile"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.85rem',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  textDecoration: 'none',
+                  fontSize: '0.92rem',
+                  fontWeight: location.pathname === '/profile' ? 700 : 500,
+                  color: location.pathname === '/profile' ? '#FFFFFF' : '#94A3B8',
+                  backgroundColor: location.pathname === '/profile' ? '#1A2639' : 'transparent',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <User size={18} color={location.pathname === '/profile' ? '#FFFFFF' : '#94A3B8'} />
+                <span>My Profile</span>
               </Link>
             </>
           )}

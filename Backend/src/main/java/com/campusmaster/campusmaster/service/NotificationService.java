@@ -76,6 +76,20 @@ public class NotificationService {
         }
 
         notification.setRead(true);
+        notificationRepository.save(notification);
+    }
+
+    @Transactional
+    public void markAsUnread(Long id, User user) {
+        Notification notification = notificationRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Notification not found: " + id));
+
+        if (!notification.getRecipient().getId().equals(user.getId())) {
+            throw new AccessDeniedException("Cannot modify notification belonging to another user");
+        }
+
+        notification.setRead(false);
+        notificationRepository.save(notification);
     }
 
     @Transactional

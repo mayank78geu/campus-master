@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import Sidebar from '../components/Sidebar';
 import { 
@@ -83,7 +84,12 @@ export default function FacultyDashboard() {
     try {
       setLoadingNotifs(true);
       const res = await api.get('/notifications');
-      setNotifications(res.data || []);
+      const normalized = (res.data || []).map(n => ({
+        ...n,
+        isRead: n.isRead !== undefined ? Boolean(n.isRead) : Boolean(n.read),
+        read: n.read !== undefined ? Boolean(n.read) : Boolean(n.isRead),
+      }));
+      setNotifications(normalized);
     } catch (e) {
       console.error(e);
     } finally {
@@ -296,7 +302,8 @@ export default function FacultyDashboard() {
   const handleMarkAllNotificationsRead = async () => {
     try {
       await api.patch('/notifications/read-all');
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true, read: true })));
+      window.dispatchEvent(new Event('cm-notifications-updated'));
     } catch (e) {
       console.error(e);
     }
@@ -580,9 +587,18 @@ export default function FacultyDashboard() {
         )}
 
         {/* =========================================================================
-            TAB 1: FACULTY OVERVIEW (Real Database Content)
+            TABS CONTENT WITH FRAMER MOTION
            ========================================================================= */}
-        {activeTab === 'overview' && (
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            {/* TAB 1: FACULTY OVERVIEW (Real Database Content) */}
+            {activeTab === 'overview' && (
           <div>
             {/* 4 Metric Cards */}
             <div className="cm-grid-4-stats" style={{
@@ -1922,32 +1938,41 @@ export default function FacultyDashboard() {
             })()}
           </div>
         )}
+          </motion.div>
+        </AnimatePresence>
 
         {/* =========================================================================
             CREATE COURSE MODAL
            ========================================================================= */}
-        {isModalOpen && (
-          <div style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(11, 19, 43, 0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            padding: '1.25rem',
-          }}>
+        <AnimatePresence>
+          {isModalOpen && (
             <div style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              width: '100%',
-              maxWidth: '560px',
-              padding: '1.75rem',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1.25rem',
             }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '560px',
+                  padding: '1.75rem',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                }}
+              >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
                 <h3 className="font-display" style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
                   Create Course Space
@@ -2142,33 +2167,41 @@ export default function FacultyDashboard() {
                   </button>
                 </div>
               </form>
-            </div>
+            </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
         {/* =========================================================================
             CREATE BATCH MODAL
            ========================================================================= */}
-        {isBatchModalOpen && (
-          <div style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(11, 19, 43, 0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            padding: '1.25rem',
-          }}>
+        <AnimatePresence>
+          {isBatchModalOpen && (
             <div style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              width: '100%',
-              maxWidth: '480px',
-              padding: '1.75rem',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1.25rem',
             }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '480px',
+                  padding: '1.75rem',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+                }}
+              >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
                 <div>
                   <h3 className="font-display" style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0F172A', margin: '0 0 2px 0' }}>
@@ -2289,35 +2322,43 @@ export default function FacultyDashboard() {
                   </button>
                 </div>
               </form>
-            </div>
+            </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
         {/* =========================================================================
             BROADCAST ANNOUNCEMENT MODAL
            ========================================================================= */}
-        {isAnnouncementModalOpen && (
-          <div style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(11, 19, 43, 0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            padding: '1.25rem',
-          }}>
+        <AnimatePresence>
+          {isAnnouncementModalOpen && (
             <div style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              width: '100%',
-              maxWidth: '620px',
-              padding: '1.75rem',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(11, 19, 43, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '1.25rem',
             }}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '20px',
+                  width: '100%',
+                  maxWidth: '620px',
+                  padding: '1.75rem',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                }}
+              >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#E8F8F5', color: '#0F766E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -2698,9 +2739,10 @@ export default function FacultyDashboard() {
                   </button>
                 </div>
               </form>
-            </div>
+            </motion.div>
           </div>
         )}
+      </AnimatePresence>
       </main>
     </div>
   );

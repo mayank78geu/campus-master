@@ -11,4 +11,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
     Optional<User> findByVerificationToken(String token);
     java.util.List<User> findByRole(com.campusmaster.campusmaster.entity.Role role);
+    boolean existsByStudentIdIgnoreCaseAndIdNot(String studentId, Long id);
+    boolean existsByStudentIdIgnoreCase(String studentId);
+    boolean existsByCourseIgnoreCaseAndSectionIgnoreCaseAndClassRollNoIgnoreCaseAndIdNot(String course, String section, String classRollNo, Long id);
+    boolean existsByCourseIgnoreCaseAndSectionIgnoreCaseAndClassRollNoIgnoreCase(String course, String section, String classRollNo);
 }

@@ -55,6 +55,17 @@ public class SubmissionController {
         return ResponseEntity.ok(ApiResponse.success("Submission graded successfully", response));
     }
 
+    @PatchMapping("/submissions/{submissionId}/reject")
+    @PreAuthorize("hasRole('FACULTY')")
+    public ResponseEntity<ApiResponse<SubmissionResponse>> rejectSubmission(
+        @PathVariable Long submissionId,
+        @Valid @RequestBody com.campusmaster.campusmaster.dto.assignment.RejectSubmissionRequest request
+    ) {
+        User faculty = authService.getCurrentUser();
+        SubmissionResponse response = submissionService.rejectSubmission(submissionId, request, faculty);
+        return ResponseEntity.ok(ApiResponse.success("Submission rejected and resubmission requested from student", response));
+    }
+
     @GetMapping("/submissions/receipt/{receiptToken}")
     public ResponseEntity<ApiResponse<SubmissionResponse>> getSubmissionByReceipt(@PathVariable String receiptToken) {
         User user = authService.getCurrentUser();

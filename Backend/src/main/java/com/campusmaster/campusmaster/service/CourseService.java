@@ -213,6 +213,9 @@ public class CourseService {
     }
 
     private void validateCourseAccess(Course course, User user) {
+        if (user.getRole() == Role.STUDENT && !user.isProfileCompleted()) {
+            throw new BadRequestException("Please complete your student profile before accessing courses.");
+        }
         if (user.getRole() == Role.FACULTY) {
             courseAccessService.requireFacultyOf(course, user);
         } else {

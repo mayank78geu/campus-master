@@ -109,4 +109,41 @@ public class ResourceController {
         List<ResourceResponse> response = resourceService.getRecentResources();
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
+
+    @PutMapping(value = "/resources/{id}", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<ResourceResponse>> updateResourceMultipart(
+            @PathVariable Long id,
+            @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "unitId", required = false) Long unitId,
+            @RequestParam(value = "externalUrl", required = false) String externalUrl,
+            @RequestParam(value = "isPublished", required = false) Boolean isPublished,
+            @RequestParam(value = "file", required = false) MultipartFile file) {
+
+        User currentUser = authService.getCurrentUser();
+        ResourceResponse response = resourceService.updateResource(
+            id, title, description, unitId, externalUrl, isPublished, file, currentUser
+        );
+        return ResponseEntity.ok(ApiResponse.ok(response, "Resource updated successfully"));
+    }
+
+    @PutMapping(value = "/resources/{id}", consumes = org.springframework.http.MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<ResourceResponse>> updateResourceJson(
+            @PathVariable Long id,
+            @RequestBody com.campusmaster.campusmaster.dto.resource.UpdateResourceRequest request) {
+
+        User currentUser = authService.getCurrentUser();
+        ResourceResponse response = resourceService.updateResource(
+            id, request.getTitle(), request.getDescription(), request.getUnitId(),
+            request.getExternalUrl(), request.getIsPublished(), null, currentUser
+        );
+        return ResponseEntity.ok(ApiResponse.ok(response, "Resource updated successfully"));
+    }
+
+    @DeleteMapping("/resources/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteResource(@PathVariable Long id) {
+        User currentUser = authService.getCurrentUser();
+        resourceService.deleteResource(id, currentUser);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Resource deleted successfully"));
+    }
 }
